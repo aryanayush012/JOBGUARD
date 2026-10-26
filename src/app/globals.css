@@ -1,0 +1,158 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1012;
+  --panel: #17191d;
+  --border: #2b2f36;
+  --text: #f5f6f7;
+  --muted: #a7adb7;
+  --accent: #fab81a;
+  --danger: #ff8b8b;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body {
+  background: radial-gradient(circle at top right, #22252b 0, var(--bg) 42rem);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a { color: inherit; }
+
+button, input { font: inherit; }
+
+.page {
+  width: min(100% - 32px, 1000px);
+  margin: 0 auto;
+  padding: 48px 0 80px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 64px;
+}
+
+.brand { font-size: 17px; font-weight: 750; letter-spacing: -0.04em; }
+.brand span { color: var(--accent); }
+
+.muted { color: var(--muted); }
+.hero { max-width: 760px; margin-bottom: 32px; }
+h1 { font-size: clamp(2.3rem, 7vw, 4.5rem); letter-spacing: -0.065em; line-height: 1.02; margin: 0 0 20px; }
+h2 { letter-spacing: -0.035em; }
+p { line-height: 1.65; }
+
+.panel {
+  background: rgba(23, 25, 29, .88);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.16);
+}
+
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.stat { min-height: 120px; }
+.stat strong { display: block; font-size: 1.65rem; margin-bottom: 8px; }
+.form { width: min(100%, 440px); margin: 0 auto; }
+.field { display: grid; gap: 8px; margin: 18px 0; }
+.field label { font-size: .92rem; color: var(--muted); }
+.field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #101114;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 13px 14px;
+  outline: none;
+}
+.field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(250,184,26,.12); }
+
+.button {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  background: var(--accent);
+  color: #17130a;
+  font-weight: 750;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+.button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.button:disabled { opacity: .6; cursor: wait; }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.error { color: var(--danger); margin: 12px 0; }
+.success { color: #9ce3b1; margin: 12px 0; }
+.small { font-size: .88rem; }
+.footer { margin-top: 48px; color: var(--muted); font-size: .85rem; }
+
+@media (max-width: 700px) {
+  .page { padding-top: 28px; }
+  .nav { margin-bottom: 42px; }
+  .grid { grid-template-columns: 1fr; }
+  .panel { padding: 20px; }
+}
+
+.field textarea, .field select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #101114;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 13px 14px;
+  outline: none;
+}
+.field textarea:focus, .field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(250,184,26,.12);
+}
+.form-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 560px) {
+  .form-grid-two { grid-template-columns: 1fr; }
+}
+
+
+/* Dashboard job card */
+.job-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.job-card-top h3 { margin: 0 0 4px; overflow-wrap: anywhere; }
+.job-card-top p { margin: 0; }
+.job-card-deadline { margin: 12px 0 0; }
+.job-card-icons { display: flex; gap: 8px; flex-shrink: 0; }
+.icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); }
+.icon-button:hover, .icon-button:focus-visible { color: var(--accent); border-color: var(--accent); }
+.icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { border-radius: 999px; padding: 4px 10px; font-size: .78rem; font-weight: 600; border: 1px solid transparent; }
+.chip-applied { color: #4ade80; background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.3); }
+.chip-referred { color: #c4b5fd; background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.3); }
+.chip-status-open { color: #7dd3fc; background: rgba(125,211,252,.12); border-color: rgba(125,211,252,.3); }
+.chip-status-closed { color: var(--danger); background: rgba(255,139,139,.12); border-color: rgba(255,139,139,.3); }
+.chip-status-unknown, .chip-status-unverified { color: var(--muted); background: rgba(167,173,183,.1); border-color: var(--border); }
+
+/* Referral management */
+.referral-panel { margin-top: 24px; }
+.referral-heading, .referrer-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.pill { border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.referral-panel h3 { margin: 18px 0 10px; }
+.referral-panel .field textarea, .referral-panel .field select, .referral-panel .field input { width: 100%; border: 1px solid var(--border); background: #101114; color: var(--text); border-radius: 10px; padding: 13px 14px; outline: none; }
+.referrer-list { margin-top: 28px; }
+.referrer-card { border: 1px solid var(--border); border-radius: 15px; padding: 18px; margin-top: 12px; background: rgba(10,11,13,.28); }
+.referrer-top h3 { margin: 0 0 4px; }
+.referrer-top p { margin: 0; }
+.referrer-links, .referrer-timing { display: grid; gap: 7px; margin-top: 14px; overflow-wrap: anywhere; }
+.referrer-links a { color: var(--accent); width: fit-content; }
+.outreach-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 12px; align-items: end; margin-top: 12px; }
+.outreach-controls .field { margin: 8px 0; }
+.small-button { padding: 7px 10px; }
+.event-history { margin-top: 14px; color: var(--muted); }
+.event-history summary { cursor: pointer; }
+.event-history ul { padding-left: 20px; }
+.event-history li { margin: 10px 0; }
+.event-history li p { margin: 4px 0; color: var(--text); }
+@media (max-width: 700px) { .outreach-controls { grid-template-columns: 1fr; gap: 4px; } .referral-heading { align-items: center; } }

@@ -14,12 +14,14 @@ function createClient() {
   return client.connect();
 }
 
-const clientPromise =
-  globalForMongo.mongoClientPromise ?? (globalForMongo.mongoClientPromise = createClient());
-
 export async function getDb(): Promise<Db> {
   const { MONGODB_DB_NAME } = getEnv();
-  const client = await clientPromise;
+  // Connect on first use, not at import: `next build` imports every route, and a
+  // connection opened there can hang the build when the database isn't reachable.
+  const client = await (globalForMongo.mongoClientPromise ??= createClient().catch((error) => {
+    globalForMongo.mongoClientPromise = undefined; // let the next request retry instead of caching the failure
+    throw error;
+  }));
   const db = client.db(MONGODB_DB_NAME);
 
   // Index creation is idempotent. A production migration process can replace

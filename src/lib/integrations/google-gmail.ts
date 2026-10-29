@@ -43,7 +43,15 @@ export async function getAccessToken(refreshToken: string) {
   const response = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }), cache: "no-store" });
   const data = await response.json(); if (!response.ok || !data.access_token) throw new Error("Could not refresh Gmail access. Please reconnect Gmail."); return String(data.access_token);
 }
-export async function gmailApi<T>(accessToken: string, path: string): Promise<T> {
+export async function gmailApi<T>(accessToken: string, path: string, attempt = 0): Promise<T> {
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
-  if (!response.ok) throw new Error(`Gmail API request failed (${response.status}).`); return response.json() as Promise<T>;
+  if (response.ok) return response.json() as Promise<T>;
+  const body = await response.json().catch(() => null);
+  const reason = String(body?.error?.errors?.[0]?.reason || body?.error?.status || "");
+  // Rate limits come back as 429 or 403 *RateLimitExceeded; back off and retry (1s, 2s, 4s).
+  if ((response.status === 429 || /ratelimit/i.test(reason)) && attempt < 3) {
+    await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    return gmailApi<T>(accessToken, path, attempt + 1);
+  }
+  throw new Error(`Gmail API request failed (${response.status}${reason ? ` ${reason}` : ""}).`);
 }

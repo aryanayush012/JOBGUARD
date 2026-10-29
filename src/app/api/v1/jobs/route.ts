@@ -3,7 +3,7 @@ import { ObjectId, type Document } from "mongodb";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/mongodb";
 import { hasTrustedOrigin, jsonError } from "@/lib/http";
-import { extractJobDetails, jobInputSchema, normalizeJobUrl } from "@/lib/jobs";
+import { assessAvailability, estimateDeadline, extractJobDetails, jobInputSchema, normalizeJobUrl } from "@/lib/jobs";
 import { fetchPublicPage } from "@/lib/public-fetch";
 
 export const runtime = "nodejs";
@@ -52,17 +52,19 @@ export async function POST(request: Request) {
 
   let company = parsed.data.company || "";
   let title = parsed.data.title || "";
-  if (!company || !title) {
-    // Gmail matching needs company/title; fill blanks from the posting. Unreadable page = stay blank.
-    try {
-      const page = await fetchPublicPage(parsed.data.sourceUrl);
-      if (page.status >= 200 && page.status < 300) {
-        const detected = extractJobDetails(page.html, parsed.data.sourceUrl);
-        company ||= detected.company;
-        title ||= detected.title;
-      }
-    } catch { /* blocked, private, timed out, or not HTML */ }
-  }
+  // One fetch fills blank company/title (Gmail matching needs them), the deadline, and availability.
+  let deadline = deadlineAt ? { deadlineAt, deadlineConfidence: "VERIFIED" } : estimateDeadline("");
+  let availability = { availabilityStatus: "UNVERIFIED", confidence: "LOW", evidence: "Job page could not be fetched" };
+  try {
+    const page = await fetchPublicPage(parsed.data.sourceUrl);
+    availability = assessAvailability(page.status, page.text, page.html);
+    if (page.status >= 200 && page.status < 300) {
+      const detected = extractJobDetails(page.html, parsed.data.sourceUrl);
+      company ||= detected.company;
+      title ||= detected.title;
+      if (!deadlineAt) deadline = estimateDeadline(page.html);
+    }
+  } catch { /* blocked, private, timed out, or not HTML */ }
   // Gmail matching filters emails by company, so a job without one is useless to sync.
   if (!company) return NextResponse.json({ error: "Couldn't detect the company from this URL. Please enter the company name.", fields: { company: ["Required"] } }, { status: 400 });
 
@@ -73,10 +75,11 @@ export async function POST(request: Request) {
     applicationUrl: parsed.data.applicationUrl || "",
     company, title,
     location: parsed.data.location || "", description: parsed.data.description || "",
-    deadlineAt,
-    deadlineConfidence: deadlineAt ? parsed.data.deadlineConfidence : "UNKNOWN",
-    availabilityStatus: parsed.data.availabilityStatus,
-    availabilityVerifiedAt: ["OPEN", "CLOSED"].includes(parsed.data.availabilityStatus) ? now : null,
+    ...deadline,
+    availabilityStatus: availability.availabilityStatus,
+    availabilityCheckConfidence: availability.confidence,
+    availabilityEvidence: availability.evidence,
+    availabilityCheckedAt: now,
     referralWaitHours: 48, timerStartedAt: null, referralWindowExpiresAt: null,
     archivedAt: null, createdAt: now, updatedAt: now
   };

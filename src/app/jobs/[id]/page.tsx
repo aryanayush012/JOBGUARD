@@ -52,8 +52,6 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           sourceUrl: String(job.sourceUrl || ""), applicationUrl: String(job.applicationUrl || ""),
           company: String(job.company || ""), title: String(job.title || ""), location: String(job.location || ""),
           description: String(job.description || ""), deadlineAt: deadline,
-          deadlineConfidence: (job.deadlineConfidence || "UNKNOWN") as "VERIFIED" | "ESTIMATED" | "UNKNOWN",
-          availabilityStatus: (job.availabilityStatus || "UNVERIFIED") as "OPEN" | "CLOSED" | "UNKNOWN" | "UNVERIFIED",
           referred: Boolean(job.referred), referredBy: String(job.referredBy || ""), applied: isApplied(job)
         }} referralNote={job.referralSetBy === "EMAIL" && job.referredAt instanceof Date
           ? `Detected from a referral email on ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" }).format(job.referredAt)}.`

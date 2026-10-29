@@ -7,7 +7,7 @@ import { jobTab, type JobTab } from "@/lib/jobs";
 import { LogoutButton } from "@/components/logout-button";
 import { JobForm } from "@/components/job-form";
 import { GmailConnectionPanel } from "@/components/gmail-connection-panel";
-
+import { syncGmail } from "@/lib/gmail-sync";
 export const dynamic = "force-dynamic";
 
 type Job = {
@@ -33,11 +33,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (!user) redirect("/login");
 
   const db = await getDb();
+  // Sync Gmail before reading jobs so the page shows what the inbox says.
+  let gmailConnection = await db.collection("gmailConnections").findOne({ userId: new ObjectId(user.id), status: "CONNECTED" });
+  const lastAttempt = gmailConnection?.lastSyncAttemptAt instanceof Date ? gmailConnection.lastSyncAttemptAt.getTime() : 0;
+  // ponytail: 5-minute throttle so rapid reloads don't hit Gmail's rate limit (the 403s seen earlier).
+  if (gmailConnection?.encryptedRefreshToken && Date.now() - lastAttempt > 5 * 60 * 1000) {
+    try { await syncGmail(db, gmailConnection); } catch { /* recorded on the connection; show the page anyway */ }
+    gmailConnection = await db.collection("gmailConnections").findOne({ _id: gmailConnection._id });
+  }
   const jobs = await db.collection<Job>("jobs")
     .find({ userId: new ObjectId(user.id), archivedAt: null })
     .sort({ createdAt: -1 }).limit(100).toArray();
-
-  const gmailConnection = await db.collection("gmailConnections").findOne({ userId: new ObjectId(user.id), status: "CONNECTED" });
 
   const openCount = jobs.filter((job) => job.availabilityStatus === "OPEN").length;
   const unverifiedCount = jobs.filter((job) => !job.availabilityStatus || ["UNKNOWN", "UNVERIFIED"].includes(job.availabilityStatus)).length;
@@ -55,7 +61,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <h1>Protect your next opportunity.</h1>
         <p className="muted">Save jobs, track potential referrers, and record outreach without losing sight of application deadlines.</p>
       </section>
-      <GmailConnectionPanel connected={Boolean(gmailConnection)} email={gmailConnection?.email ? String(gmailConnection.email) : undefined} lastSyncedAt={gmailConnection?.lastSyncedAt instanceof Date ? gmailConnection.lastSyncedAt.toISOString() : null} />
+      <GmailConnectionPanel connected={Boolean(gmailConnection)} email={gmailConnection?.email ? String(gmailConnection.email) : undefined} lastSyncedAt={gmailConnection?.lastSyncedAt instanceof Date ? gmailConnection.lastSyncedAt.toISOString() : null}
+        syncError={gmailConnection?.lastSyncStatus === "FAILED" ? String(gmailConnection.lastSyncError || "Gmail sync failed.") : undefined} />
       <section className="grid" style={{ marginBottom: 28 }}>
         <div className="panel stat"><strong>{jobs.length}</strong><span>Jobs tracked</span></div>
         <div className="panel stat"><strong>{openCount}</strong><span>Marked open</span></div>

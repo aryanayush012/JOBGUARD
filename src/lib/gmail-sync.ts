@@ -1,12 +1,8 @@
-import { NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/mongodb";
-import { hasTrustedOrigin, jsonError } from "@/lib/http";
+import "server-only";
+import type { Db, Document, WithId } from "mongodb";
 import { decryptToken, getAccessToken, gmailApi } from "@/lib/integrations/google-gmail";
 import { detectReferral, parseFrom } from "@/lib/referral-email";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+
 type Header = { name: string; value: string };
 type GmailMessage = { id: string; threadId?: string; snippet?: string; internalDate?: string; payload?: { headers?: Header[]; mimeType?: string; body?: { data?: string }; parts?: GmailMessage["payload"][] } };
 function decodePart(payload?: GmailMessage["payload"]): string {
@@ -26,10 +22,12 @@ function classify(subject: string, text: string) {
   if (/job.{0,20}(closed|no longer available)|position.{0,20}(filled|closed)|applications are now closed/.test(all)) return { type: "JOB_CLOSED_NOTICE", confidence: "MEDIUM", label: "Job closure mentioned" };
   return null;
 }
-export async function POST(request: Request) {
-  if (!hasTrustedOrigin(request)) return jsonError("Invalid request origin.", 403); const user = await getCurrentUser(); if (!user) return jsonError("Authentication required.", 401);
-  const db = await getDb(); const userId = new ObjectId(user.id); const connection = await db.collection("gmailConnections").findOne({ userId, status: "CONNECTED" });
-  if (!connection?.encryptedRefreshToken) return jsonError("Connect Gmail before syncing.", 400);
+function matchesGeneric(type: string) { return ["APPLICATION_SUBMITTED", "APPLICATION_REJECTED", "INTERVIEW_UPDATE", "APPLICATION_UPDATE", "JOB_CLOSED_NOTICE"].includes(type); }
+
+/** Reads recent job emails for one Gmail connection and updates matching jobs. Records success/failure on the connection. */
+export async function syncGmail(db: Db, connection: WithId<Document>) {
+  const userId = connection.userId;
+  await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncAttemptAt: new Date() } });
   try {
     const access = await getAccessToken(decryptToken(String(connection.encryptedRefreshToken)));
     type ListResult = { messages?: { id: string; threadId: string }[]; resultSizeEstimate?: number };
@@ -40,11 +38,15 @@ export async function POST(request: Request) {
       search('newer_than:180d -in:sent {referred referral}', 50)
     ]);
     const listed = [...new Map([...(general.messages || []), ...(referralList.messages || [])].map((m) => [m.id, m])).values()];
+    // Fetch 10 at a time: far faster than one by one, well under Gmail's per-user rate limit.
+    const messages: GmailMessage[] = [];
+    for (let i = 0; i < listed.length; i += 10) {
+      messages.push(...await Promise.all(listed.slice(i, i + 10).map((m) => gmailApi<GmailMessage>(access, `messages/${encodeURIComponent(m.id)}?format=full`))));
+    }
     const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1 }).toArray();
     const selfEmail = String(connection.email || "").toLowerCase();
     let processed = 0, matched = 0, needsReview = 0, referralsDetected = 0;
-    for (const { id: listedId } of listed) {
-      const message = await gmailApi<GmailMessage>(access, `messages/${encodeURIComponent(listedId)}?format=full`);
+    for (const message of messages) {
       const subject = header(message, "Subject").slice(0, 300); const from = header(message, "From").slice(0, 300); const date = header(message, "Date").slice(0, 150); const bodyText = `${message.snippet || ""} ${decodePart(message.payload)}`;
       if (selfEmail && parseFrom(from).email === selfEmail) continue; // your own sent mail is never evidence
       const referral = detectReferral(subject, bodyText, from, jobs.map((j) => String(j.company || "")));
@@ -101,10 +103,9 @@ export async function POST(request: Request) {
       await db.collection("jobs").updateOne({ _id: job._id, userId }, { $set: update });
     }
     await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncedAt: new Date(), lastSyncStatus: "SUCCESS" } });
-    return NextResponse.json({ ok: true, messagesProcessed: processed, matchedJobs: matched, needsReview, referralsDetected, note: "Email classification is evidence-based and may require review; detected statuses do not overwrite your manually maintained application status." });
+    return { messagesProcessed: processed, matchedJobs: matched, needsReview, referralsDetected };
   } catch (error) {
-    await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncStatus: "FAILED", lastSyncError: error instanceof Error ? error.message.slice(0, 250) : "Sync failed", lastSyncAttemptAt: new Date() } });
-    return jsonError(error instanceof Error ? error.message : "Gmail sync failed.", 502);
+    await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncStatus: "FAILED", lastSyncError: error instanceof Error ? error.message.slice(0, 250) : "Sync failed" } });
+    throw error;
   }
 }
-function matchesGeneric(type: string) { return ["APPLICATION_SUBMITTED", "APPLICATION_REJECTED", "INTERVIEW_UPDATE", "APPLICATION_UPDATE", "JOB_CLOSED_NOTICE"].includes(type); }

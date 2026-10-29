@@ -6,14 +6,12 @@ import { useRouter } from "next/navigation";
 type JobValues = {
   sourceUrl: string; applicationUrl: string; company: string; title: string;
   location: string; description: string; deadlineAt: string;
-  deadlineConfidence: "VERIFIED" | "ESTIMATED" | "UNKNOWN";
-  availabilityStatus: "OPEN" | "CLOSED" | "UNKNOWN" | "UNVERIFIED";
   referred: boolean; referredBy: string; applied: boolean;
 };
 
 const empty: JobValues = {
   sourceUrl: "", applicationUrl: "", company: "", title: "", location: "", description: "",
-  deadlineAt: "", deadlineConfidence: "UNKNOWN", availabilityStatus: "UNVERIFIED",
+  deadlineAt: "",
   referred: false, referredBy: "", applied: false
 };
 
@@ -107,10 +105,7 @@ export function JobForm({ mode = "create", jobId, initial, referralNote, applied
         {mode === "edit" && <div className="field"><label htmlFor="title">Job title</label><input id="title" maxLength={200} value={values.title} onChange={(e) => update("title", e.target.value)} placeholder="Not detected" /></div>}
       </div>
       <div className="field"><label htmlFor="description">Notes (optional)</label><textarea id="description" maxLength={20000} rows={3} value={values.description} onChange={(e) => update("description", e.target.value)} placeholder="Anything worth remembering about this job…" /></div>
-      <div className="grid form-grid-two">
-        <div className="field"><label htmlFor="deadlineAt">Application deadline (optional)</label><input id="deadlineAt" type="datetime-local" value={values.deadlineAt} onChange={(e) => update("deadlineAt", e.target.value)} /></div>
-        <div className="field"><label htmlFor="deadlineConfidence">Deadline confidence</label><select id="deadlineConfidence" value={values.deadlineConfidence} onChange={(e) => update("deadlineConfidence", e.target.value as JobValues["deadlineConfidence"])}><option value="UNKNOWN">Unknown</option><option value="ESTIMATED">Estimated</option><option value="VERIFIED">Verified</option></select></div>
-      </div>
+      <div className="field"><label htmlFor="deadlineAt">Application deadline (leave blank to auto-detect)</label><input id="deadlineAt" type="datetime-local" value={values.deadlineAt} onChange={(e) => update("deadlineAt", e.target.value)} /></div>
       {mode === "edit" && (
         <div className="field">
           <label htmlFor="referred" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
@@ -130,7 +125,6 @@ export function JobForm({ mode = "create", jobId, initial, referralNote, applied
           {appliedNote && <span className="muted small">{appliedNote}</span>}
         </div>
       )}
-      <div className="field"><label htmlFor="availabilityStatus">Job availability</label><select id="availabilityStatus" value={values.availabilityStatus} onChange={(e) => update("availabilityStatus", e.target.value as JobValues["availabilityStatus"])}><option value="UNVERIFIED">Unverified</option><option value="OPEN">Open (verified)</option><option value="CLOSED">Closed (verified)</option><option value="UNKNOWN">Unknown</option></select></div>
       {error && <p className="error" role="alert">{error}</p>}
       {success && <p className="success" role="status">{success}</p>}
       <button className="button" disabled={busy}>{busy ? "Saving…" : mode === "edit" ? "Save changes" : "Save job"}</button>

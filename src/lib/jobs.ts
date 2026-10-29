@@ -8,8 +8,6 @@ export const jobInputSchema = z.object({
   location: z.string().trim().max(160).optional().default(""),
   description: z.string().trim().max(20000).optional().default(""),
   deadlineAt: z.string().trim().optional().or(z.literal("")),
-  deadlineConfidence: z.enum(["VERIFIED", "ESTIMATED", "UNKNOWN"]).default("UNKNOWN"),
-  availabilityStatus: z.enum(["OPEN", "CLOSED", "UNKNOWN", "UNVERIFIED"]).default("UNVERIFIED"),
   applied: z.boolean().optional().default(false),
   referred: z.boolean().optional().default(false),
   referredBy: z.string().trim().max(120).optional().default("")
@@ -69,24 +67,58 @@ function companyFromBoardUrl(pageUrl: string) {
 export function extractJobDetails(html: string, pageUrl: string) {
   let company = "";
   let title = "";
+  forEachJobPosting(html, (record) => {
+    if (!title && typeof record.title === "string") title = decodeEntities(record.title);
+    const org = record.hiringOrganization;
+    const name = typeof org === "string" ? org : (org as Record<string, unknown> | undefined)?.name;
+    if (!company && typeof name === "string") company = decodeEntities(name);
+  });
+  return { company: (company || companyFromBoardUrl(pageUrl)).slice(0, 160), title: title.slice(0, 200) };
+}
+
+/** Calls `fn` for every schema.org JobPosting in the page's JSON-LD, including ones inside @graph. */
+function forEachJobPosting(html: string, fn: (record: Record<string, unknown>) => void) {
   const visit = (node: unknown): void => {
-    if (title && company) return;
     if (Array.isArray(node)) { node.forEach(visit); return; }
     if (!node || typeof node !== "object") return;
     const record = node as Record<string, unknown>;
-    const types = ([] as unknown[]).concat(record["@type"]);
-    if (types.includes("JobPosting")) {
-      if (!title && typeof record.title === "string") title = decodeEntities(record.title);
-      const org = record.hiringOrganization;
-      const name = typeof org === "string" ? org : (org as Record<string, unknown> | undefined)?.name;
-      if (!company && typeof name === "string") company = decodeEntities(name);
-    }
+    if (([] as unknown[]).concat(record["@type"]).includes("JobPosting")) fn(record);
     if (record["@graph"]) visit(record["@graph"]);
   };
   for (const match of html.matchAll(/<script[^>]*type=["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)) {
     try { visit(JSON.parse(match[1].trim())); } catch { /* malformed JSON-LD is common; skip it */ }
   }
-  return { company: (company || companyFromBoardUrl(pageUrl)).slice(0, 160), title: title.slice(0, 200) };
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+/**
+ * Deadline for a job the user gave none for: the posting's own `validThrough` is VERIFIED;
+ * otherwise ESTIMATED as the earlier of today + 5 days and posted date + 30 days, so you apply early.
+ */
+export function estimateDeadline(html: string, now = new Date()) {
+  let validThrough: Date | null = null;
+  let datePosted: Date | null = null;
+  const toDate = (value: unknown) => { const d = typeof value === "string" ? new Date(value) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
+  forEachJobPosting(html, (record) => { validThrough ||= toDate(record.validThrough); datePosted ||= toDate(record.datePosted); });
+  if (validThrough) return { deadlineAt: validThrough as Date, deadlineConfidence: "VERIFIED" as const };
+  // ponytail: rule of thumb, most postings close within ~30 days; swap for real data if estimates prove off.
+  const early = now.getTime() + 5 * DAY;
+  const fromPosted = datePosted ? (datePosted as Date).getTime() + 30 * DAY : Infinity;
+  return { deadlineAt: new Date(Math.min(early, fromPosted)), deadlineConfidence: "ESTIMATED" as const };
+}
+
+/** Open/closed verdict from a fetched job page's HTTP status and visible text. */
+export function assessAvailability(httpStatus: number, text: string, html = "") {
+  const t = text.toLowerCase();
+  if ([404, 410].includes(httpStatus)) return { availabilityStatus: "CLOSED", confidence: "MEDIUM", evidence: `HTTP ${httpStatus}` };
+  if (httpStatus === 401 || httpStatus === 403 || httpStatus === 429 || httpStatus >= 500) return { availabilityStatus: "UNVERIFIED", confidence: "LOW", evidence: `HTTP ${httpStatus}; access blocked or server error` };
+  if (/job (posting )?(is )?(no longer available|has expired|is closed)|position has been filled|this job is no longer available|applications (are|have been) closed|job has been taken down|this role is no longer accepting applications/.test(t)) return { availabilityStatus: "CLOSED", confidence: "HIGH", evidence: "Page contains explicit closure wording" };
+  if (/apply now|submit application|apply for this job|easy apply/.test(t) && !/no longer available|applications closed|position filled/.test(t) && httpStatus >= 200 && httpStatus < 300) return { availabilityStatus: "OPEN", confidence: "MEDIUM", evidence: "Page contains an application action" };
+  // JS-rendered boards (Workday etc.) have no visible text, but still publish JobPosting data while the job is live.
+  let hasPosting = false;
+  forEachJobPosting(html, () => { hasPosting = true; });
+  if (hasPosting && httpStatus >= 200 && httpStatus < 300) return { availabilityStatus: "OPEN", confidence: "MEDIUM", evidence: "Page publishes live job posting data" };
+  return { availabilityStatus: "UNKNOWN", confidence: "LOW", evidence: `HTTP ${httpStatus}; no reliable availability signal found` };
 }
 
 export function normalizeJobUrl(value: string) {

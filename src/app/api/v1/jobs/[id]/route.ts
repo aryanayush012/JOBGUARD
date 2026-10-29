@@ -3,7 +3,7 @@ import { ObjectId, type Document } from "mongodb";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/mongodb";
 import { hasTrustedOrigin, jsonError } from "@/lib/http";
-import { isApplied, jobInputSchema, normalizeJobUrl } from "@/lib/jobs";
+import { estimateDeadline, isApplied, jobInputSchema, normalizeJobUrl } from "@/lib/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +60,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   // Only a real change counts as the user's decision; after that, Gmail sync won't flip the switch back.
   const referralChanged = parsed.data.referred !== Boolean(existing.referred) || referredBy !== String(existing.referredBy || "");
   const appliedChanged = parsed.data.applied !== isApplied(existing);
+  // The form round-trips at minute precision, so compare at that precision.
+  const minute = (d: unknown) => d instanceof Date ? Math.floor(d.getTime() / 60000) : null;
+  const deadlineChanged = minute(deadlineAt) !== minute(existing.deadlineAt);
 
   try {
     await db.collection("jobs").updateOne(filter, { $set: {
@@ -71,9 +74,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       applicationUrl: parsed.data.applicationUrl || "",
       company: parsed.data.company || "", title: parsed.data.title || "",
       location: parsed.data.location || "", description: parsed.data.description || "",
-      deadlineAt, deadlineConfidence: deadlineAt ? parsed.data.deadlineConfidence : "UNKNOWN",
-      availabilityStatus: parsed.data.availabilityStatus,
-      availabilityVerifiedAt: ["OPEN", "CLOSED"].includes(parsed.data.availabilityStatus) ? new Date() : null,
+      // A date you changed is yours (VERIFIED); an untouched auto-estimate keeps its confidence; a cleared one is re-estimated.
+      ...(deadlineAt
+        ? { deadlineAt, deadlineConfidence: deadlineChanged ? "VERIFIED" : existing.deadlineConfidence === "ESTIMATED" ? "ESTIMATED" : "VERIFIED" }
+        : estimateDeadline("")),
       updatedAt: new Date()
     } });
   } catch (error) {

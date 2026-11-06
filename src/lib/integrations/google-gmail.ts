@@ -1,5 +1,4 @@
 import "server-only";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const SCOPES = [READ_SCOPE, "openid", "email"];
@@ -17,19 +16,7 @@ export function googleConfig() {
   return { clientId, clientSecret, baseUrl: baseUrl.replace(/\/$/, ""), encryptionKey };
 }
 export function gmailScopes() { return SCOPES; }
-export function encryptToken(token: string) {
-  const { encryptionKey } = googleConfig(); const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey, iv);
-  const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
-  return [iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), encrypted.toString("base64url")].join(".");
-}
-export function decryptToken(value: string) {
-  const { encryptionKey } = googleConfig(); const [iv, tag, encrypted] = value.split(".");
-  if (!iv || !tag || !encrypted) throw new Error("Stored Gmail token is invalid.");
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey, Buffer.from(iv, "base64url"));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
-}
+export { encrypt as encryptToken, decrypt as decryptToken } from "@/lib/crypto";
 export function makeGoogleAuthUrl(state: string) {
   const { clientId, baseUrl } = googleConfig(); const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", clientId); url.searchParams.set("redirect_uri", `${baseUrl}/api/integrations/gmail/callback`);

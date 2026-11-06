@@ -38,6 +38,9 @@ export default async function AnalyticsPage() {
         <p className="muted">Where every job stands, and who opened doors for you. Hover or click anything to dig in.</p>
       </section>
       <AnalyticsView data={computeAnalytics(jobs, byJob)} />
+      <Link href="/profile" className="fab fab-2" aria-label="Profile">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+      </Link>
       <Link href="/dashboard" className="fab" aria-label="Dashboard">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg>
       </Link>

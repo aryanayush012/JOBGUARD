@@ -142,7 +142,43 @@ p { line-height: 1.65; }
 .fab:hover, .fab:focus-visible { transform: translateY(-3px) scale(1.05); box-shadow: 0 14px 36px rgba(0,0,0,.5), 0 0 0 4px rgba(250,184,26,.25); outline: none; }
 .fab::after { content: attr(aria-label); position: absolute; right: calc(100% + 10px); white-space: nowrap; padding: 6px 10px; border-radius: 8px; background: #0b0c0e; border: 1px solid var(--border); color: var(--text); font-size: .8rem; font-weight: 600; opacity: 0; transform: translateX(6px); pointer-events: none; transition: opacity .15s, transform .15s; }
 .fab:hover::after, .fab:focus-visible::after { opacity: 1; transform: none; }
-@media (max-width: 560px) { .fab { right: 16px; bottom: 16px; } }
+.fab-2 { bottom: 92px; width: 48px; height: 48px; right: 28px; background: var(--panel); color: var(--text); box-shadow: 0 10px 30px rgba(0,0,0,.45), 0 0 0 1px var(--border); }
+.fab-2:hover, .fab-2:focus-visible { box-shadow: 0 14px 36px rgba(0,0,0,.5), 0 0 0 4px rgba(250,184,26,.2); color: var(--accent); }
+@media (max-width: 560px) { .fab { right: 16px; bottom: 16px; } .fab-2 { right: 20px; bottom: 80px; } }
+
+/* Profile / answer bank */
+.profile-root { display: grid; gap: 18px; }
+.profile-root h2 { margin: 0 0 6px; font-size: 1.15rem; }
+.dropzone { display: grid; justify-items: center; gap: 6px; text-align: center; margin-top: 16px; padding: 28px 18px; border: 1.5px dashed var(--border); border-radius: 16px; cursor: pointer; transition: border-color .15s, background .15s; outline: none; }
+.dropzone svg { width: 28px; height: 28px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dropzone:hover, .dropzone:focus-visible, .dropzone.is-drag { border-color: var(--accent); background: rgba(250,184,26,.05); }
+.dropzone.is-busy { cursor: progress; opacity: .8; }
+.dropzone strong { overflow-wrap: anywhere; }
+.completeness { display: grid; gap: 10px; }
+.completeness p { margin: 0; }
+.meter { height: 8px; border-radius: 999px; background: #262a31; overflow: hidden; }
+.meter span { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease; }
+.field-group { display: grid; gap: 4px; }
+.field-row { display: grid; gap: 6px; padding: 10px 0; }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.field-grid .field-wide { grid-column: 1 / -1; }
+@media (max-width: 700px) { .field-grid { grid-template-columns: 1fr; } }
+.field-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.field-row-head label { font-size: .9rem; color: var(--muted); }
+.field-row input, .field-row textarea, .add-answer input { width: 100%; border: 1px solid var(--border); background: #101114; color: var(--text); border-radius: 10px; padding: 11px 13px; outline: none; font: inherit; resize: vertical; }
+.field-row input:focus, .field-row textarea:focus, .add-answer input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(250,184,26,.12); }
+.save-state { margin-left: auto; color: #9ce3b1; font-size: .78rem; }
+.chip.src-resume { color: #7dd3fc; background: rgba(125,211,252,.1); border-color: rgba(125,211,252,.25); }
+.chip.src-user { color: #4ade80; background: rgba(74,222,128,.1); border-color: rgba(74,222,128,.25); }
+.chip.src-ai { color: #c4b5fd; background: rgba(167,139,250,.12); border-color: rgba(167,139,250,.28); }
+.saved-answer { border-top: 1px solid #22262c; }
+.saved-answer .field-row { border: 0; padding-bottom: 4px; }
+.saved-answer-meta { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-bottom: 10px; }
+.link-button.delete-link { color: var(--muted); font-size: .82rem; }
+.link-button.delete-link:hover, .link-button.delete-link:focus-visible { color: var(--danger); }
+.add-answer { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-top: 8px; padding-top: 12px; border-top: 1px solid #22262c; }
+.add-answer .field { margin: 0; }
+@media (max-width: 700px) { .add-answer { grid-template-columns: 1fr; } }
 
 /* Analytics: chart colors are categorical slots validated (dark, on --panel) for colour-blind separation, in this order */
 .page-wide { width: min(100% - 32px, 1160px); }

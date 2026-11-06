@@ -31,9 +31,12 @@ export function isApplied(job: Record<string, unknown>) {
   return typeof job.applied === "boolean" ? job.applied : APPLIED_EMAIL_STATUSES.includes(String(job.emailDetectedApplicationStatus));
 }
 
-export type JobTab = "not-applied" | "referred" | "applied";
-export function jobTab(job: Record<string, unknown>): JobTab {
-  return isApplied(job) ? "applied" : job.referred ? "referred" : "not-applied";
+export type JobTab = "not-applied" | "referred" | "applied" | "missed";
+/** Applied wins; otherwise a passed deadline means missed (referred or not); then referred; then not applied. */
+export function jobTab(job: Record<string, unknown>, now = new Date()): JobTab {
+  if (isApplied(job)) return "applied";
+  if (job.deadlineAt instanceof Date && job.deadlineAt < now) return "missed";
+  return job.referred ? "referred" : "not-applied";
 }
 
 function decodeEntities(value: string) {
@@ -94,6 +97,7 @@ const DAY = 24 * 60 * 60 * 1000;
 /**
  * Deadline for a job the user gave none for: the posting's own `validThrough` is VERIFIED;
  * otherwise ESTIMATED as the earlier of today + 5 days and posted date + 30 days, so you apply early.
+ * If posted + 30 days has already passed, it's today + 5 days.
  */
 export function estimateDeadline(html: string, now = new Date()) {
   let validThrough: Date | null = null;
@@ -104,7 +108,8 @@ export function estimateDeadline(html: string, now = new Date()) {
   // ponytail: rule of thumb, most postings close within ~30 days; swap for real data if estimates prove off.
   const early = now.getTime() + 5 * DAY;
   const fromPosted = datePosted ? (datePosted as Date).getTime() + 30 * DAY : Infinity;
-  return { deadlineAt: new Date(Math.min(early, fromPosted)), deadlineConfidence: "ESTIMATED" as const };
+  // A 30-day window that already ended says nothing useful; never estimate a past deadline.
+  return { deadlineAt: new Date(fromPosted > now.getTime() ? Math.min(early, fromPosted) : early), deadlineConfidence: "ESTIMATED" as const };
 }
 
 /** Open/closed verdict from a fetched job page's HTTP status and visible text. */

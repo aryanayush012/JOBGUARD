@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const DAY = 24 * 60 * 60 * 1000;
 const IST = 5.5 * 60 * 60 * 1000; // India has no DST, so a fixed offset is exact
 
-/** Daily (vercel.json): emails each user the jobs whose deadline is today (IST) and that they haven't applied to. */
+/** Daily (vercel.json): emails each Gmail-connected user the jobs whose deadline is today (IST) and that they haven't applied to. */
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) return jsonError("Unauthorized.", 401);
   const db = await getDb();
@@ -25,10 +25,10 @@ export async function GET(request: Request) {
   const base = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
   let emailsSent = 0; const failures: string[] = [];
   for (const jobs of byUser.values()) {
-    // Prefer the Gmail address (Google verified it at connect time) over the unverified sign-up email.
+    // Only the Gmail address Google verified at connect time. Sign-up emails are unverified, so
+    // using them would let anyone register as victim@x.com and have JobGuard mail them links.
     const connection = await db.collection("gmailConnections").findOne({ userId: jobs[0].userId, status: "CONNECTED" });
-    const user = await db.collection("users").findOne({ _id: jobs[0].userId });
-    const to = String(connection?.email || user?.email || "");
+    const to = String(connection?.email || "");
     if (!to) continue;
     try {
       const lines = jobs.map((job) => `• ${job.title || "Untitled role"} at ${job.company || "unknown company"}\n  ${job.applicationUrl || job.sourceUrl}`);

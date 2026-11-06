@@ -9,6 +9,13 @@ assert.equal(jobTab({ referred: true, applied: true }), "applied");
 assert.equal(jobTab({ emailDetectedApplicationStatus: "SUBMITTED" }), "applied");
 assert.equal(jobTab({ emailDetectedApplicationStatus: "SUBMITTED", applied: false }), "not-applied"); // you switched it off
 assert.equal(jobTab({ emailDetectedApplicationStatus: "SUBMITTED", applied: false, referred: true }), "referred");
+// Missed: deadline passed and not applied, referred or not; applied jobs never count as missed
+const t = new Date("2026-11-06T00:00:00Z"), past = new Date("2026-11-05T00:00:00Z"), future = new Date("2026-11-07T00:00:00Z");
+assert.equal(jobTab({ deadlineAt: past }, t), "missed");
+assert.equal(jobTab({ deadlineAt: past, referred: true }, t), "missed");
+assert.equal(jobTab({ deadlineAt: past, applied: true }, t), "applied");
+assert.equal(jobTab({ deadlineAt: future, referred: true }, t), "referred");
+assert.equal(jobTab({ deadlineAt: null }, t), "not-applied");
 
 const ld = (obj: unknown) => `<script type="application/ld+json">${JSON.stringify(obj)}</script>`;
 
@@ -38,6 +45,7 @@ const day = 24 * 60 * 60 * 1000;
 assert.deepEqual(estimateDeadline(ld({ "@type": "JobPosting", validThrough: "2026-12-01T00:00:00Z", datePosted: "2026-10-01" }), now), { deadlineAt: new Date("2026-12-01T00:00:00Z"), deadlineConfidence: "VERIFIED" });
 assert.deepEqual(estimateDeadline(ld({ "@type": "JobPosting", datePosted: "2026-10-20T00:00:00Z" }), now), { deadlineAt: new Date(now.getTime() + 5 * day), deadlineConfidence: "ESTIMATED" }); // fresh posting: apply early
 assert.deepEqual(estimateDeadline(ld({ "@type": "JobPosting", datePosted: "2026-09-30T00:00:00Z" }), now), { deadlineAt: new Date("2026-10-30T00:00:00Z"), deadlineConfidence: "ESTIMATED" }); // 30-day window ends sooner
+assert.deepEqual(estimateDeadline(ld({ "@type": "JobPosting", datePosted: "2026-08-01T00:00:00Z" }), now), { deadlineAt: new Date(now.getTime() + 5 * day), deadlineConfidence: "ESTIMATED" }); // window already over: never a past date
 assert.deepEqual(estimateDeadline("", now), { deadlineAt: new Date(now.getTime() + 5 * day), deadlineConfidence: "ESTIMATED" });
 assert.deepEqual(estimateDeadline(ld({ "@type": "JobPosting", validThrough: "not a date" }), now).deadlineConfidence, "ESTIMATED");
 // Availability: JS-rendered page with JobPosting data counts as open; without it stays unknown

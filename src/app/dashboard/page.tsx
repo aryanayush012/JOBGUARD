@@ -19,7 +19,8 @@ type Job = {
 const TABS: { key: JobTab; label: string; empty: string }[] = [
   { key: "not-applied", label: "Not applied", empty: "Nothing waiting. New jobs you save land here." },
   { key: "referred", label: "Referred", empty: "No referred jobs yet. A job moves here when a referral email arrives or you switch on “Got referral”." },
-  { key: "applied", label: "Applied", empty: "No applications yet. A job moves here when an application email arrives or you switch on “Applied”." }
+  { key: "applied", label: "Applied", empty: "No applications yet. A job moves here when an application email arrives or you switch on “Applied”." },
+  { key: "missed", label: "Missed", empty: "Nothing missed. A job moves here when its deadline passes before you apply." }
 ];
 
 function statusLabel(value?: string) {
@@ -108,6 +109,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 </p>
                 <div className="chips">
                   {jobTab(job) === "applied" && <span className="chip chip-applied">Applied</span>}
+                  {jobTab(job) === "missed" && <span className="chip chip-missed">Deadline passed</span>}
                   {job.referred && <span className="chip chip-referred">{job.referredBy ? `Referred by ${job.referredBy}` : "Referred"}</span>}
                   <span className={`chip chip-status-${(job.availabilityStatus || "UNVERIFIED").toLowerCase()}`}>{statusLabel(job.availabilityStatus)}</span>
                 </div>
@@ -117,6 +119,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         )}
       </section>
       <p className="footer">Phase 4 · Gmail evidence sync and job availability checks · No application is submitted automatically.</p>
+      <Link href="/analytics" className="fab" aria-label="Analytics">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
+      </Link>
     </main>
   );
 }

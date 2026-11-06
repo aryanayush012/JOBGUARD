@@ -3,6 +3,7 @@ import { getEnv } from "@/lib/env";
 
 const globalForMongo = globalThis as unknown as {
   mongoClientPromise?: Promise<MongoClient>;
+  indexesPromise?: Promise<void>;
 };
 
 function createClient() {
@@ -23,9 +24,14 @@ export async function getDb(): Promise<Db> {
     throw error;
   }));
   const db = client.db(MONGODB_DB_NAME);
+  await (globalForMongo.indexesPromise ??= ensureIndexes(db));
+  return db;
+}
 
-  // Index creation is idempotent. A production migration process can replace
-  // this on larger deployments; for this starter it keeps setup straightforward.
+// Runs once per server instance, not per request. Indexes persist in the database, so a
+// failure here (e.g. an options conflict after editing a definition) is logged rather than
+// turning every request, login included, into a 500.
+async function ensureIndexes(db: Db) {
   await Promise.all([
     db.collection("users").createIndex({ normalizedEmail: 1 }, { unique: true }),
     db.collection("sessions").createIndex({ tokenHash: 1 }, { unique: true }),
@@ -48,7 +54,5 @@ export async function getDb(): Promise<Db> {
     db.collection("gmailEvents").createIndex({ userId: 1, messageId: 1 }, { unique: true }),
     db.collection("gmailEvents").createIndex({ userId: 1, needsReview: 1, processedAt: -1 }),
     db.collection("availabilityChecks").createIndex({ userId: 1, jobId: 1, checkedAt: -1 })
-  ]);
-
-  return db;
+  ]).catch((error) => console.error("MongoDB index setup failed:", error));
 }

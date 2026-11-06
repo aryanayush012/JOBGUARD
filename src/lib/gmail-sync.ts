@@ -22,6 +22,11 @@ function classify(subject: string, text: string) {
   if (/job.{0,20}(closed|no longer available)|position.{0,20}(filled|closed)|applications are now closed/.test(all)) return { type: "JOB_CLOSED_NOTICE", confidence: "MEDIUM", label: "Job closure mentioned" };
   return null;
 }
+// Gmail's internalDate (when it received the mail) is reliable; the Date header is sender-controlled and may not parse.
+function emailDate(internalDate: string | undefined, header: string) {
+  for (const d of [internalDate ? new Date(Number(internalDate)) : null, header ? new Date(header) : null]) if (d && !Number.isNaN(d.getTime())) return d;
+  return null;
+}
 function matchesGeneric(type: string) { return ["APPLICATION_SUBMITTED", "APPLICATION_REJECTED", "INTERVIEW_UPDATE", "APPLICATION_UPDATE", "JOB_CLOSED_NOTICE"].includes(type); }
 
 /** Reads recent job emails for one Gmail connection and updates matching jobs. Records success/failure on the connection. */
@@ -39,10 +44,15 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
     ]);
     const listed = [...new Map([...(general.messages || []), ...(referralList.messages || [])].map((m) => [m.id, m])).values()];
     // Fetch 10 at a time: far faster than one by one, well under Gmail's per-user rate limit.
+    // A message that fails (deleted mid-sync, transient 5xx) is skipped, not fatal to the whole sync.
     const messages: GmailMessage[] = [];
     for (let i = 0; i < listed.length; i += 10) {
-      messages.push(...await Promise.all(listed.slice(i, i + 10).map((m) => gmailApi<GmailMessage>(access, `messages/${encodeURIComponent(m.id)}?format=full`))));
+      const results = await Promise.allSettled(listed.slice(i, i + 10).map((m) => gmailApi<GmailMessage>(access, `messages/${encodeURIComponent(m.id)}?format=full`)));
+      for (const result of results) if (result.status === "fulfilled") messages.push(result.value);
     }
+    if (listed.length && !messages.length) throw new Error("Could not read any Gmail messages.");
+    // Oldest first, so when several emails touch the same job the newest one's status wins.
+    messages.sort((a, b) => Number(a.internalDate || 0) - Number(b.internalDate || 0));
     const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1 }).toArray();
     const selfEmail = String(connection.email || "").toLowerCase();
     let processed = 0, matched = 0, needsReview = 0, referralsDetected = 0;
@@ -76,7 +86,7 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
         return (companyMatch && titleMatch) || (uniqueCompanyMatch && (matchesGeneric(event.type) || event.type === "REFERRAL_REPORTED")) || urlMatch;
       });
       const job = matches.length === 1 ? matches[0] : null;
-      const eventDoc = { userId, messageId: message.id, threadId: message.threadId || "", subject, from, emailDate: date ? new Date(date) : (message.internalDate ? new Date(Number(message.internalDate)) : null), type: event.type, label: event.label, confidence: job ? event.confidence : "LOW", jobId: job?._id || null, matchedJob: Boolean(job), needsReview: !job, snippet: String(message.snippet || "").slice(0, 500), processedAt: new Date() };
+      const eventDoc = { userId, messageId: message.id, threadId: message.threadId || "", subject, from, emailDate: emailDate(message.internalDate, date), type: event.type, label: event.label, confidence: job ? event.confidence : "LOW", jobId: job?._id || null, matchedJob: Boolean(job), needsReview: !job, snippet: String(message.snippet || "").slice(0, 500), processedAt: new Date() };
       await db.collection("gmailEvents").updateOne({ userId, messageId: message.id }, { $set: eventDoc }, { upsert: true }); processed++;
       if (!job) { needsReview++; continue; } matched++;
       const update: Record<string, unknown> = { lastEmailEvidenceAt: eventDoc.emailDate || new Date(), lastEmailEvidenceType: event.type, lastEmailEvidenceId: message.id, updatedAt: new Date() };

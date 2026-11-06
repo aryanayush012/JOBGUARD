@@ -63,7 +63,8 @@ export function JobForm({ mode = "create", jobId, initial, referralNote, applied
     event.preventDefault();
     setBusy(true); setError(""); setSuccess("");
     try {
-      const payload = { ...values, deadlineAt: values.deadlineAt ? new Date(values.deadlineAt).toISOString() : "" };
+      // The input holds IST wall time (the app's timezone); read it as IST, not the browser's zone.
+      const payload = { ...values, deadlineAt: values.deadlineAt ? new Date(`${values.deadlineAt.slice(0, 16)}:00+05:30`).toISOString() : "" };
       const response = await fetch(mode === "edit" ? `/api/v1/jobs/${jobId}` : "/api/v1/jobs", {
         method: mode === "edit" ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,7 +106,7 @@ export function JobForm({ mode = "create", jobId, initial, referralNote, applied
         {mode === "edit" && <div className="field"><label htmlFor="title">Job title</label><input id="title" maxLength={200} value={values.title} onChange={(e) => update("title", e.target.value)} placeholder="Not detected" /></div>}
       </div>
       <div className="field"><label htmlFor="description">Notes (optional)</label><textarea id="description" maxLength={20000} rows={3} value={values.description} onChange={(e) => update("description", e.target.value)} placeholder="Anything worth remembering about this job…" /></div>
-      <div className="field"><label htmlFor="deadlineAt">Application deadline (leave blank to auto-detect)</label><input id="deadlineAt" type="datetime-local" value={values.deadlineAt} onChange={(e) => update("deadlineAt", e.target.value)} /></div>
+      <div className="field"><label htmlFor="deadlineAt">Application deadline, IST (leave blank to auto-detect)</label><input id="deadlineAt" type="datetime-local" value={values.deadlineAt} onChange={(e) => update("deadlineAt", e.target.value)} /></div>
       {mode === "edit" && (
         <div className="field">
           <label htmlFor="referred" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>

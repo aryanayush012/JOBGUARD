@@ -23,8 +23,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!job) notFound();
 
+  // IST wall time for the datetime-local input, independent of the server's timezone (UTC on Vercel).
+  // The form sends it back with an explicit +05:30, so saving never shifts the date.
   const deadline = job.deadlineAt instanceof Date
-    ? new Date(job.deadlineAt.getTime() - job.deadlineAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    ? new Date(job.deadlineAt.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 16)
     : "";
 
   return (

@@ -1,7 +1,11 @@
 import "server-only";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "openid", "email"];
+const READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const SCOPES = [READ_SCOPE, "openid", "email"];
+export const OAUTH_STATE_COOKIE = "jpap_oauth_state";
+/** Google lets users untick Gmail access on the consent screen; sign-in still works without it. */
+export function grantedGmailRead(scopes: unknown) { return String(scopes || "").split(" ").includes(READ_SCOPE); }
 export function googleConfig() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;

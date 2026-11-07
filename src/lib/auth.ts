@@ -105,13 +105,12 @@ export async function revokeCurrentSession() {
 }
 
 /**
- * Browser-extension tokens: random, shown to you once, stored only as an HMAC (like session tokens),
- * one active token per user, revocable from the Profile page.
+ * Browser-extension tokens: random, handed straight to the extension, stored only as an HMAC (like session tokens).
+ * One per browser you connect; "Disconnect" on the Profile page revokes them all.
  */
 export async function createExtensionToken(userId: ObjectId) {
   const rawToken = `jg_${randomBytes(32).toString("base64url")}`;
   const db = await getDb(); const now = new Date();
-  await db.collection("apiTokens").updateMany({ userId, revokedAt: null }, { $set: { revokedAt: now } });
   await db.collection("apiTokens").insertOne({ userId, tokenHash: hashSessionToken(rawToken), createdAt: now, lastUsedAt: null, revokedAt: null });
   return rawToken;
 }
@@ -123,8 +122,10 @@ export async function revokeExtensionTokens(userId: ObjectId) {
 
 export async function getExtensionTokenStatus(userId: ObjectId) {
   const db = await getDb();
-  const token = await db.collection("apiTokens").findOne({ userId, revokedAt: null }, { projection: { createdAt: 1, lastUsedAt: 1 } });
-  return token ? { createdAt: (token.createdAt as Date).toISOString(), lastUsedAt: token.lastUsedAt instanceof Date ? token.lastUsedAt.toISOString() : null } : null;
+  const tokens = await db.collection("apiTokens").find({ userId, revokedAt: null }, { projection: { createdAt: 1, lastUsedAt: 1 } }).toArray();
+  if (!tokens.length) return null;
+  const lastUsed = tokens.map((t) => t.lastUsedAt).filter((d): d is Date => d instanceof Date).sort((a, b) => b.getTime() - a.getTime())[0];
+  return { devices: tokens.length, lastUsedAt: lastUsed ? lastUsed.toISOString() : null };
 }
 
 /** The user behind an `Authorization: Bearer jg_…` header from the extension, or null. */

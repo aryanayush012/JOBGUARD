@@ -6,6 +6,7 @@ import { hasTrustedOrigin, jsonError } from "@/lib/http";
 import { loadProfile, loadResumeFile, saveFields, saveResume } from "@/lib/profile";
 import { mergeResume } from "@/lib/profile-fields";
 import { extractProfile, geminiConfigured } from "@/lib/gemini";
+import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,10 @@ export async function POST(request: Request) {
   await saveResume(db, userId, fileName, pdf);
 
   let warning: string | undefined;
-  if (geminiConfigured()) {
+  const { aiAssist } = await getSettings(db, userId);
+  if (!aiAssist) {
+    warning = "Resume saved. AI assist is off, so your resume wasn't read automatically: turn on AI assist above, or fill the answers yourself.";
+  } else if (geminiConfigured()) {
     try {
       const { fields } = await loadProfile(db, userId);
       await saveFields(db, userId, mergeResume(fields, await extractProfile(pdf)));

@@ -26,6 +26,88 @@ const ACTION_TYPES = ["ASSESSMENT_INVITE", "COMPLETE_APPLICATION"];
 // A later confirmation, interview or rejection means the earlier "action needed" is done or moot.
 const RESOLVES_ACTION = ["APPLICATION_SUBMITTED", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"];
 
+type EmailJob = WithId<Document>;
+export type IncomingEmail = { id: string; threadId: string; subject: string; from: string; date: Date | null; text: string; snippet: string };
+type EmailContext = { userId: unknown; jobs: EmailJob[]; selfEmail: string; keepUnmatched: boolean };
+
+export function loadJobsForEmail(db: Db, userId: unknown) {
+  return db.collection("jobs").find({ userId, archivedAt: null }).project<EmailJob>({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1, actionNeeded: 1 }).toArray();
+}
+
+/**
+ * Classifies one job email, matches it to a saved job and updates that job. Shared by the Gmail sync (server)
+ * and the browser extension (which sends only subject/preview/sender/date of job-looking emails).
+ * `keepUnmatched: false` means emails that match no job are not stored at all.
+ */
+export async function processEmail(db: Db, ctx: EmailContext, email: IncomingEmail): Promise<"skipped" | "unmatched" | "matched" | "matched-referral"> {
+  const { userId, jobs } = ctx;
+  const subject = email.subject.slice(0, 300); const from = email.from.slice(0, 300); const bodyText = email.text;
+  if (ctx.selfEmail && parseFrom(from).email === ctx.selfEmail) return "skipped"; // your own sent mail is never evidence
+  const referral = detectReferral(subject, bodyText, from, jobs.map((j) => String(j.company || "")));
+  const event = referral
+    ? { type: "REFERRAL_REPORTED", confidence: referral.source === "SYSTEM_EMAIL" ? "HIGH" : "MEDIUM", label: referral.source === "SYSTEM_EMAIL" ? "Referral confirmed by employer" : "Referral reported by contact" }
+    : classify(subject, bodyText);
+  if (!event) return "skipped";
+  const lower = `${subject} ${bodyText}`.toLowerCase();
+  const companyCounts = new Map<string, number>();
+  for (const candidate of jobs) {
+    const key = String(candidate.company || "").trim().toLowerCase();
+    if (key.length >= 3) companyCounts.set(key, (companyCounts.get(key) || 0) + 1);
+  }
+  const matches = jobs.filter((job) => {
+    const company = String(job.company || "").trim().toLowerCase();
+    const title = String(job.title || "").trim().toLowerCase();
+    const companyMatch = company.length >= 3 && lower.includes(company);
+    const titleMatch = title.length >= 5 && lower.includes(title);
+    // A unique company match is useful when automated emails omit the role title.
+    // If multiple jobs at that company exist, require the role title to avoid false assignment.
+    const uniqueCompanyMatch = companyMatch && companyCounts.get(company) === 1;
+    let urlMatch = false;
+    try {
+      const host = new URL(String(job.sourceUrl)).hostname.replace(/^www\./, "").toLowerCase();
+      urlMatch = host.length > 4 && lower.includes(host);
+    } catch {}
+    return (companyMatch && titleMatch) || (uniqueCompanyMatch && (matchesGeneric(event.type) || event.type === "REFERRAL_REPORTED")) || urlMatch;
+  });
+  const job = matches.length === 1 ? matches[0] : null;
+  if (!job && !ctx.keepUnmatched) return "skipped";
+  const eventDoc = { userId, messageId: email.id, threadId: email.threadId, subject, from, emailDate: email.date, type: event.type, label: event.label, confidence: job ? event.confidence : "LOW", jobId: job?._id || null, matchedJob: Boolean(job), needsReview: !job, snippet: email.snippet.slice(0, 500), processedAt: new Date() };
+  await db.collection("gmailEvents").updateOne({ userId, messageId: email.id }, { $set: eventDoc }, { upsert: true });
+  if (!job) return "unmatched";
+  const update: Record<string, unknown> = { lastEmailEvidenceAt: eventDoc.emailDate || new Date(), lastEmailEvidenceType: event.type, lastEmailEvidenceId: email.id, updatedAt: new Date() };
+  if (event.type === "APPLICATION_SUBMITTED") update.emailDetectedApplicationStatus = "SUBMITTED";
+  if (event.type === "APPLICATION_REJECTED") update.emailDetectedApplicationStatus = "REJECTED";
+  if (event.type === "INTERVIEW_UPDATE") update.emailDetectedApplicationStatus = "INTERVIEW";
+  if (event.type === "REFERRAL_REPORTED" && !referral) update.emailDetectedReferralStatus = "REPORTED_BY_EMAIL";
+  // An assessment or "finish your application" email puts an "Action needed" chip on the job, linked to the email.
+  const unset: Record<string, ""> = {};
+  if (ACTION_TYPES.includes(event.type)) {
+    update.actionNeeded = { type: event.type, label: event.label, messageId: email.threadId || email.id, at: eventDoc.emailDate || new Date() }; // Gmail id, for the "open in Gmail" link
+    job.actionNeeded = update.actionNeeded;
+  } else if (RESOLVES_ACTION.includes(event.type) && job.actionNeeded && (!eventDoc.emailDate || eventDoc.emailDate >= job.actionNeeded.at)) {
+    unset.actionNeeded = ""; job.actionNeeded = null;
+  }
+  // A confirmation, assessment, interview or rejection means you applied: move the job to "Applied" unless you switched it off yourself.
+  if (["APPLICATION_SUBMITTED", "ASSESSMENT_INVITE", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"].includes(event.type) && job.applied !== true && !(job.appliedSetBy === "USER" && job.applied === false)) {
+    Object.assign(update, { applied: true, appliedSetBy: "EMAIL", appliedAt: eventDoc.emailDate || new Date() });
+    job.applied = true;
+  }
+  let newReferral = false;
+  if (referral) {
+    // Switch "Got referral" on unless you switched it off yourself; fill a missing name either way.
+    const userTurnedOff = job.referralSetBy === "USER" && !job.referred;
+    if (!job.referred && !userTurnedOff) {
+      Object.assign(update, { referred: true, referredBy: referral.referrerName, referredAt: eventDoc.emailDate || new Date(), referralSource: referral.source, referralSetBy: "EMAIL" });
+      newReferral = true;
+    } else if (job.referred && !job.referredBy && referral.referrerName) {
+      update.referredBy = referral.referrerName;
+    }
+    Object.assign(job, { referred: update.referred ?? job.referred, referredBy: update.referredBy ?? job.referredBy }); // later emails this sync see it
+  }
+  await db.collection("jobs").updateOne({ _id: job._id, userId }, { $set: update, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+  return newReferral ? "matched-referral" : "matched";
+}
+
 /** Reads recent job emails for one Gmail connection and updates matching jobs. Records success/failure on the connection. */
 export async function syncGmail(db: Db, connection: WithId<Document>) {
   const userId = connection.userId;
@@ -50,72 +132,17 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
     if (listed.length && !messages.length) throw new Error("Could not read any Gmail messages.");
     // Oldest first, so when several emails touch the same job the newest one's status wins.
     messages.sort((a, b) => Number(a.internalDate || 0) - Number(b.internalDate || 0));
-    const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1, actionNeeded: 1 }).toArray();
-    const selfEmail = String(connection.email || "").toLowerCase();
+    const ctx = { userId, jobs: await loadJobsForEmail(db, userId), selfEmail: String(connection.email || "").toLowerCase(), keepUnmatched: true };
     let processed = 0, matched = 0, needsReview = 0, referralsDetected = 0;
     for (const message of messages) {
-      const subject = header(message, "Subject").slice(0, 300); const from = header(message, "From").slice(0, 300); const date = header(message, "Date").slice(0, 150); const bodyText = `${message.snippet || ""} ${decodePart(message.payload)}`;
-      if (selfEmail && parseFrom(from).email === selfEmail) continue; // your own sent mail is never evidence
-      const referral = detectReferral(subject, bodyText, from, jobs.map((j) => String(j.company || "")));
-      const event = referral
-        ? { type: "REFERRAL_REPORTED", confidence: referral.source === "SYSTEM_EMAIL" ? "HIGH" : "MEDIUM", label: referral.source === "SYSTEM_EMAIL" ? "Referral confirmed by employer" : "Referral reported by contact" }
-        : classify(subject, bodyText);
-      if (!event) continue;
-      const lower = `${subject} ${bodyText}`.toLowerCase();
-      const companyCounts = new Map<string, number>();
-      for (const candidate of jobs) {
-        const key = String(candidate.company || "").trim().toLowerCase();
-        if (key.length >= 3) companyCounts.set(key, (companyCounts.get(key) || 0) + 1);
-      }
-      const matches = jobs.filter((job) => {
-        const company = String(job.company || "").trim().toLowerCase();
-        const title = String(job.title || "").trim().toLowerCase();
-        const companyMatch = company.length >= 3 && lower.includes(company);
-        const titleMatch = title.length >= 5 && lower.includes(title);
-        // A unique company match is useful when automated emails omit the role title.
-        // If multiple jobs at that company exist, require the role title to avoid false assignment.
-        const uniqueCompanyMatch = companyMatch && companyCounts.get(company) === 1;
-        let urlMatch = false;
-        try {
-          const host = new URL(String(job.sourceUrl)).hostname.replace(/^www\./, "").toLowerCase();
-          urlMatch = host.length > 4 && lower.includes(host);
-        } catch {}
-        return (companyMatch && titleMatch) || (uniqueCompanyMatch && (matchesGeneric(event.type) || event.type === "REFERRAL_REPORTED")) || urlMatch;
+      const outcome = await processEmail(db, ctx, {
+        id: message.id, threadId: message.threadId || "", subject: header(message, "Subject"), from: header(message, "From"),
+        date: emailDate(message.internalDate, header(message, "Date").slice(0, 150)), text: `${message.snippet || ""} ${decodePart(message.payload)}`, snippet: message.snippet || ""
       });
-      const job = matches.length === 1 ? matches[0] : null;
-      const eventDoc = { userId, messageId: message.id, threadId: message.threadId || "", subject, from, emailDate: emailDate(message.internalDate, date), type: event.type, label: event.label, confidence: job ? event.confidence : "LOW", jobId: job?._id || null, matchedJob: Boolean(job), needsReview: !job, snippet: String(message.snippet || "").slice(0, 500), processedAt: new Date() };
-      await db.collection("gmailEvents").updateOne({ userId, messageId: message.id }, { $set: eventDoc }, { upsert: true }); processed++;
-      if (!job) { needsReview++; continue; } matched++;
-      const update: Record<string, unknown> = { lastEmailEvidenceAt: eventDoc.emailDate || new Date(), lastEmailEvidenceType: event.type, lastEmailEvidenceId: message.id, updatedAt: new Date() };
-      if (event.type === "APPLICATION_SUBMITTED") update.emailDetectedApplicationStatus = "SUBMITTED";
-      if (event.type === "APPLICATION_REJECTED") update.emailDetectedApplicationStatus = "REJECTED";
-      if (event.type === "INTERVIEW_UPDATE") update.emailDetectedApplicationStatus = "INTERVIEW";
-      if (event.type === "REFERRAL_REPORTED" && !referral) update.emailDetectedReferralStatus = "REPORTED_BY_EMAIL";
-      // An assessment or "finish your application" email puts an "Action needed" chip on the job, linked to the email.
-      const unset: Record<string, ""> = {};
-      if (ACTION_TYPES.includes(event.type)) {
-        update.actionNeeded = { type: event.type, label: event.label, messageId: message.id, at: eventDoc.emailDate || new Date() };
-        job.actionNeeded = update.actionNeeded;
-      } else if (RESOLVES_ACTION.includes(event.type) && job.actionNeeded && (!eventDoc.emailDate || eventDoc.emailDate >= job.actionNeeded.at)) {
-        unset.actionNeeded = ""; job.actionNeeded = null;
-      }
-      // A confirmation, assessment, interview or rejection means you applied: move the job to "Applied" unless you switched it off yourself.
-      if (["APPLICATION_SUBMITTED", "ASSESSMENT_INVITE", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"].includes(event.type) && job.applied !== true && !(job.appliedSetBy === "USER" && job.applied === false)) {
-        Object.assign(update, { applied: true, appliedSetBy: "EMAIL", appliedAt: eventDoc.emailDate || new Date() });
-        job.applied = true;
-      }
-      if (referral) {
-        // Switch "Got referral" on unless you switched it off yourself; fill a missing name either way.
-        const userTurnedOff = job.referralSetBy === "USER" && !job.referred;
-        if (!job.referred && !userTurnedOff) {
-          Object.assign(update, { referred: true, referredBy: referral.referrerName, referredAt: eventDoc.emailDate || new Date(), referralSource: referral.source, referralSetBy: "EMAIL" });
-          referralsDetected++;
-        } else if (job.referred && !job.referredBy && referral.referrerName) {
-          update.referredBy = referral.referrerName;
-        }
-        Object.assign(job, { referred: update.referred ?? job.referred, referredBy: update.referredBy ?? job.referredBy }); // later emails this sync see it
-      }
-      await db.collection("jobs").updateOne({ _id: job._id, userId }, { $set: update, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+      if (outcome === "skipped") continue;
+      processed++;
+      if (outcome === "unmatched") needsReview++; else matched++;
+      if (outcome === "matched-referral") referralsDetected++;
     }
     await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncedAt: new Date(), lastSyncStatus: "SUCCESS" } });
     return { messagesProcessed: processed, matchedJobs: matched, needsReview, referralsDetected };

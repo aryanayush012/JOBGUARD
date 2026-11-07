@@ -110,19 +110,35 @@
   }
 
   /* ---------- One pass over the page ---------- */
-  const state = { filled: 0, drafts: [], skipped: 0, resume: "", job: null, error: "", verification: null };
+  const state = { filled: 0, drafts: [], skipped: 0, unanswered: 0, resume: "", job: null, error: "", verification: null, applied: "" };
 
   // Account sign-up on application sites: fetch the code/link the site just emailed you (read from your Gmail).
   async function getVerification() {
     state.verification = { loading: true }; panel.render("done");
-    try { state.verification = await api(`/api/ext/verification?host=${encodeURIComponent(location.hostname)}`); }
-    catch (e) { state.verification = { error: e.message }; }
+    try {
+      // Looked up in this browser first (code never leaves your computer); the server is only asked if you use the Gmail beta.
+      state.verification = await send({ type: "verification", host: location.hostname })
+        || await api(`/api/ext/verification?host=${encodeURIComponent(location.hostname)}`).catch(() => null)
+        || { error: "No verification email from the last 20 minutes yet. Open Gmail in this browser or wait a moment, then try again." };
+    } catch (e) { state.verification = { error: e.message }; }
     panel.render("done");
+  }
+
+  // "Thank you for applying" on screen = you submitted: mark the saved job Applied (once per page).
+  const SUBMITTED = /application (has been |was )?(submitted|received)|thank you for (applying|your application|submitting)|we('ve| have) received your application|you('ve| have) (successfully )?applied|successfully (applied|submitted)/i;
+  let appliedSent = false;
+  async function checkSubmitted() {
+    if (appliedSent || !SUBMITTED.test(document.body?.innerText || "")) return;
+    appliedSent = true;
+    try {
+      const result = await api("/api/ext/applied", "POST", { url: location.href });
+      if (result.matched) { state.applied = `${result.title || "Job"} at ${result.company} marked as applied in JobGuard ✓`; panel.render("done"); }
+    } catch { appliedSent = false; }
   }
   let running = false;
 
   async function run() {
-    if (running) return; running = true; panel.render("working");
+    if (running) return; running = true; state.ran = true; panel.render("working");
     try {
       const { questions, targets, resumeInput } = collect();
       if (resumeInput) {
@@ -132,6 +148,7 @@
         const result = await api("/api/ext/fill", "POST", { url: location.href, questions });
         state.job = result.job || state.job;
         state.skipped += result.skipped.length;
+        state.unanswered += result.unanswered || 0;
         if (result.aiError) state.error = result.aiError;
         for (const answer of result.answers) {
           const target = targets.get(answer.id); if (!target) continue;
@@ -172,15 +189,17 @@
       const body = phase === "idle" ? `<div class="muted">Fill this application from your JobGuard answers. You review and submit.</div><button class="main">Fill this application</button>`
         : phase === "working" ? `<div class="muted">Filling… AI drafts can take up to 30 seconds.</div>`
         : `${job}
-          <div class="row"><span class="dot" style="background:#fab81a"></span>${state.filled} filled from your answers</div>
+          ${state.applied ? `<div class="row" style="color:#9ce3b1">${esc(state.applied)}</div>` : ""}
+          ${state.ran ? `<div class="row"><span class="dot" style="background:#fab81a"></span>${state.filled} filled from your answers</div>` : ""}
+          ${state.unanswered ? `<div class="muted">${state.unanswered} question${state.unanswered === 1 ? "" : "s"} left for you. Turn on AI assist on your JobGuard Profile to get drafts.</div>` : ""}
           ${state.resume === "attached" ? `<div class="row"><span class="dot" style="background:#fab81a"></span>Resume attached</div>` : state.resume ? `<div class="err">Resume: ${esc(state.resume)}</div>` : ""}
           ${state.drafts.length ? `<div class="row"><span class="dot" style="background:#a78bfa"></span>${state.drafts.length} AI draft${state.drafts.length === 1 ? "" : "s"}: check them in the form</div>` : ""}
           ${state.skipped ? `<div class="muted">${state.skipped} personal question${state.skipped === 1 ? "" : "s"} (gender, disability…) left for you</div>` : ""}
           ${state.error ? `<div class="err">${esc(state.error)}</div>` : ""}
           ${state.drafts.length ? `<div class="muted">Edit drafts in the form, then save the ones worth reusing:</div>${state.drafts.map((d, i) => `<div class="q"><label><input type="checkbox" data-i="${i}" ${d.save ? "checked" : ""}>${esc(d.label)}</label></div>`).join("")}<button class="main save">Save checked to my answers</button>` : ""}
-          <div class="muted">Review everything, then submit the form yourself.</div>
+          ${state.ran ? `<div class="muted">Review everything, then submit the form yourself.</div>` : ""}
           ${verificationHtml()}
-          <button class="ghost again">Fill again</button>`;
+          ${state.ran ? `<button class="ghost again">Fill again</button>` : ""}`;
       root.innerHTML = `<style>${css}</style><div class="card" role="dialog" aria-label="JobGuard Autofill"><div class="head"><div class="brand">JOB<span>GUARD</span></div><button class="x" aria-label="Minimise">–</button></div><div class="body">${body}</div></div>`;
       root.querySelector(".x").onclick = () => { open = false; render(phase); };
       root.querySelector("button.main:not(.save)")?.addEventListener("click", () => void run());
@@ -191,7 +210,7 @@
       root.querySelector(".openlink")?.addEventListener("click", () => { if (/^https:\/\//.test(state.verification?.link || "")) window.open(state.verification.link, "_blank", "noopener"); });
       root.querySelector(".again")?.addEventListener("click", () => {
         // Start over: look at every field again (filled ones are still skipped, so nothing you typed is overwritten).
-        handled = new WeakSet(); Object.assign(state, { filled: 0, drafts: [], skipped: 0, resume: "", error: "" });
+        handled = new WeakSet(); Object.assign(state, { filled: 0, drafts: [], skipped: 0, unanswered: 0, resume: "", error: "" });
         void run();
       });
       root.querySelectorAll("input[data-i]").forEach((box) => box.addEventListener("change", () => { state.drafts[box.dataset.i].save = box.checked; }));
@@ -228,12 +247,20 @@
   const hasForm = () => [...document.querySelectorAll("input, textarea, select")].some(candidate);
 
   send({ type: "config" }).then(({ autoFill, connected }) => {
-    if (!connected || !hasForm()) return;
-    if (!autoFill) { panel.render("idle"); return; }
-    void run();
-    // Multi-step forms (Workday's "Next"): fill new fields as they appear, without re-asking about old ones.
+    if (!connected) return;
+    void checkSubmitted();
     let timer;
-    new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(() => { if (!running) { const fresh = [...document.querySelectorAll("input, textarea, select")].some((el) => !handled.has(el) && candidate(el)); if (fresh) void run(); } }, 1200); })
-      .observe(document.body, { childList: true, subtree: true });
+    // Watch for new form steps (Workday's "Next") and for the "application submitted" screen.
+    new MutationObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void checkSubmitted();
+        if (!autoFill || running) return;
+        const fresh = [...document.querySelectorAll("input, textarea, select")].some((el) => !handled.has(el) && candidate(el));
+        if (fresh) void run();
+      }, 1200);
+    }).observe(document.body, { childList: true, subtree: true });
+    if (!hasForm()) return;
+    if (autoFill) void run(); else panel.render("idle");
   }).catch(() => { /* extension reloaded; ignore */ });
 })();

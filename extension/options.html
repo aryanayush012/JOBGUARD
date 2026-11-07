@@ -17,13 +17,12 @@
 <body>
   <main>
     <h1>JOB<span>GUARD</span> Autofill</h1>
-    <p class="muted">On JobGuard, open <b>Profile → Browser extension → Connect extension</b>, then paste the URL and token here.</p>
+    <p class="muted">You normally don&apos;t need this page: the extension connects itself when you open your JobGuard Profile. Use this only to connect manually, e.g. to a local development copy.</p>
     <label>JobGuard URL<input type="text" id="baseUrl" placeholder="https://your-app.vercel.app"></label>
     <label>Token<input type="password" id="token" placeholder="jg_…" autocomplete="off"></label>
-    <label class="check"><input type="checkbox" id="autoFill"> Fill automatically when an application form opens (Workday, Greenhouse, Lever, Ashby, SmartRecruiters)</label>
     <button id="save">Save and test</button>
     <div id="result" class="muted"></div>
-    <p class="muted">The extension fills fields and attaches your resume. It never clicks Submit, never touches password fields, and leaves personal questions (gender, disability…) for you.</p>
+    <p class="muted">Auto-fill, email updates and AI assist are managed on your JobGuard Profile page.</p>
   </main>
   <script src="options.js"></script>
 </body>

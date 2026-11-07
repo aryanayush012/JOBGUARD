@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { GROUPS, type ProfileField } from "@/lib/profile-fields";
 
 type Resume = { fileName: string; size: number; uploadedAt: string } | null;
@@ -15,47 +15,139 @@ async function send(url: string, init: RequestInit) {
   return data as Profile & { warning?: string };
 }
 
-type TokenStatus = { createdAt: string; lastUsedAt: string | null } | null;
+type TokenStatus = { devices: number; lastUsedAt: string | null } | null;
+type Settings = { autoFill: boolean; emailScan: boolean; aiAssist: boolean };
 const fmt = (iso: string) => new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(new Date(iso));
+const STORE_URL = process.env.NEXT_PUBLIC_EXTENSION_STORE_URL || "";
+
+/** Talks to the JobGuard extension through its bridge script (it only runs on JobGuard's own pages). */
+function askExtension(type: "status" | "connect" | "disconnect", token?: string) {
+  return new Promise<{ ok: boolean; data?: { connected?: boolean; version?: string }; error?: string } | null>((resolve) => {
+    const requestId = Math.random().toString(36).slice(2);
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window || e.data?.source !== "jobguard-extension" || e.data.requestId !== requestId) return;
+      window.removeEventListener("message", onMessage); resolve(e.data);
+    };
+    window.addEventListener("message", onMessage);
+    window.postMessage({ source: "jobguard-page", type, token, requestId }, window.location.origin);
+    setTimeout(() => { window.removeEventListener("message", onMessage); resolve(null); }, 4000);
+  });
+}
 
 function ExtensionCard({ initialStatus }: { initialStatus: TokenStatus }) {
   const [status, setStatus] = useState(initialStatus);
-  const [token, setToken] = useState(""); const [copied, setCopied] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-  async function call(method: "POST" | "DELETE") {
-    if (method === "POST" && status && !confirm("Create a new token? The extension's current token will stop working until you paste the new one.")) return;
-    if (method === "DELETE" && !confirm("Disconnect the extension? It stops filling forms until you connect it again.")) return;
-    setBusy(true); setError("");
-    try {
-      const response = await fetch("/api/v1/extension/token", { method });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Request failed.");
-      if (method === "POST") { setToken(data.token); setStatus({ createdAt: new Date().toISOString(), lastUsedAt: null }); } else { setToken(""); setStatus(null); }
-    } catch (e) { setError(e instanceof Error ? e.message : "Request failed."); } finally { setBusy(false); }
+  const [phase, setPhase] = useState<"checking" | "missing" | "connecting" | "connected" | "error">("checking");
+  const [version, setVersion] = useState(""); const [error, setError] = useState("");
+  const ref = useRef<HTMLElement>(null);
+
+  // Installed + not connected → connect right away (no token to copy). That's the whole setup.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (new URLSearchParams(window.location.search).has("connect")) ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      for (let i = 0; i < 10 && !document.documentElement.dataset.jobguardExtension; i++) await new Promise((r) => setTimeout(r, 200));
+      if (cancelled) return;
+      if (!document.documentElement.dataset.jobguardExtension) { setPhase("missing"); return; }
+      const state = await askExtension("status");
+      setVersion(state?.data?.version || document.documentElement.dataset.jobguardExtension || "");
+      if (state?.data?.connected) { setPhase("connected"); return; }
+      setPhase("connecting");
+      try {
+        const response = await fetch("/api/v1/extension/token", { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Couldn't create a connection.");
+        const connected = await askExtension("connect", data.token);
+        if (!connected?.ok) throw new Error(connected?.error || "The extension didn't answer. Reload this page.");
+        if (!cancelled) { setPhase("connected"); setStatus((s) => ({ devices: (s?.devices ?? 0) + 1, lastUsedAt: s?.lastUsedAt ?? null })); }
+      } catch (e) { if (!cancelled) { setError(e instanceof Error ? e.message : "Couldn't connect."); setPhase("error"); } }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function disconnect() {
+    if (!confirm("Disconnect the extension from your account on every browser? It stops filling forms and updating statuses until you connect again.")) return;
+    await fetch("/api/v1/extension/token", { method: "DELETE" }).catch(() => {});
+    await askExtension("disconnect");
+    setStatus(null); setPhase(document.documentElement.dataset.jobguardExtension ? "error" : "missing"); setError("Disconnected. Reload this page to connect again.");
   }
-  async function copy(text: string, what: string) { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(""), 1500); } catch { /* user can select it manually */ } }
+
   return (
-    <section className="panel">
-      <div className="viz-card-head"><div><h2 style={{ margin: 0 }}>Browser extension</h2><p className="muted small" style={{ margin: "4px 0 0" }}>Fills job applications from this answer bank. It never clicks Submit.</p></div>
-        {status ? <span className="chip src-user">Connected</span> : <span className="chip chip-status-unknown">Not connected</span>}</div>
-      {status && !token && <p className="small muted">Token created {fmt(status.createdAt)} · {status.lastUsedAt ? `last used ${fmt(status.lastUsedAt)}` : "not used yet"}</p>}
-      {token && (
-        <div className="token-box">
-          <p className="small">Paste these into the extension’s settings. <strong>The token is shown only once.</strong></p>
-          <div className="token-row"><span className="muted small">JobGuard URL</span><code>{origin}</code><button className="button secondary small-button" onClick={() => void copy(origin, "url")}>{copied === "url" ? "Copied ✓" : "Copy"}</button></div>
-          <div className="token-row"><span className="muted small">Token</span><code>{token}</code><button className="button secondary small-button" onClick={() => void copy(token, "token")}>{copied === "token" ? "Copied ✓" : "Copy"}</button></div>
+    <section className="panel" id="extension" ref={ref}>
+      <div className="viz-card-head"><div><h2 style={{ margin: 0 }}>Browser extension</h2><p className="muted small" style={{ margin: "4px 0 0" }}>Fills job applications, attaches your resume, and keeps job statuses up to date from Gmail on your own computer. It never clicks Submit.</p></div>
+        {phase === "connected" ? <span className="chip src-user">Connected</span> : phase === "checking" || phase === "connecting" ? <span className="chip chip-status-unknown">{phase === "checking" ? "Checking…" : "Connecting…"}</span> : <span className="chip chip-status-unknown">Not connected</span>}</div>
+      {phase === "missing" && (
+        <div className="ext-install">
+          {STORE_URL
+            ? <a className="button" href={STORE_URL} target="_blank" rel="noreferrer">Add to Chrome</a>
+            : <span className="muted small">Coming to the Chrome Web Store soon. Until then: open <code>chrome://extensions</code>, turn on Developer mode, choose <b>Load unpacked</b> and pick the JobGuard <code>extension</code> folder.</span>}
+          <p className="muted small" style={{ margin: 0 }}>After installing, come back here (or it opens this page for you) and it connects automatically.</p>
         </div>
       )}
-      <div className="actions" style={{ marginTop: 12 }}>
-        <button className="button" disabled={busy} onClick={() => void call("POST")}>{status ? "Create new token" : "Connect extension"}</button>
-        {status && <button className="button secondary" disabled={busy} onClick={() => void call("DELETE")}>Disconnect</button>}
-      </div>
+      {phase === "connected" && <p className="small muted">Version {version}{status ? ` · ${status.devices} browser${status.devices === 1 ? "" : "s"} connected` : ""}{status?.lastUsedAt ? ` · last used ${fmt(status.lastUsedAt)}` : ""}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+      {(phase === "connected" || status) && <div className="actions"><button className="button secondary" onClick={() => void disconnect()}>Disconnect</button></div>}
+    </section>
+  );
+}
+
+function PrivacyCard({ settings, aiAvailable, onChange }: { settings: Settings; aiAvailable: boolean; onChange: (s: Settings) => void }) {
+  const [error, setError] = useState(""); const [saving, setSaving] = useState<keyof Settings | "">("");
+  async function toggle(key: keyof Settings) {
+    setSaving(key); setError("");
+    try {
+      const response = await fetch("/api/v1/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ [key]: !settings[key] }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Couldn't save.");
+      onChange(data.settings);
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); } finally { setSaving(""); }
+  }
+  const rows: { key: keyof Settings; title: string; body: string; disabled?: boolean }[] = [
+    { key: "autoFill", title: "Fill applications automatically", body: "When you open an application on Workday, Greenhouse, Lever, Ashby or SmartRecruiters, the extension fills it from your answers. You always review and submit yourself." },
+    { key: "emailScan", title: "Update job statuses from Gmail, on this computer", body: "The extension checks your Gmail inbox in your browser. Only emails about your saved jobs are sent to JobGuard, and only their sender, subject, preview line and date. Email contents never leave your computer." },
+    { key: "aiAssist", title: "AI assist (Google Gemini)", disabled: !aiAvailable, body: aiAvailable
+      ? "Reads your resume to fill your answers, and drafts answers to new questions. Your resume and those questions are sent to Google Gemini; on its free tier Google may use them to improve its models. Off by default."
+      : "Not available on this server yet." }
+  ];
+  return (
+    <section className="panel">
+      <h2 style={{ margin: "0 0 4px" }}>Privacy &amp; automation</h2>
+      <p className="muted small" style={{ margin: "0 0 8px" }}>You decide what JobGuard does. Changes apply immediately, including in the extension.</p>
+      {rows.map((r) => (
+        <label key={r.key} className={`toggle-row${r.disabled ? " is-disabled" : ""}`}>
+          <input type="checkbox" role="switch" checked={settings[r.key]} disabled={r.disabled || saving === r.key} onChange={() => void toggle(r.key)} />
+          <span><b>{r.title}</b><span className="muted small">{r.body}</span></span>
+        </label>
+      ))}
       {error && <p className="error" role="alert">{error}</p>}
     </section>
   );
 }
 
-export function ProfileView({ initial, aiEnabled, tokenStatus }: { initial: Profile; aiEnabled: boolean; tokenStatus: TokenStatus }) {
+function DangerZone() {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function remove() {
+    if (window.prompt("This permanently deletes your account, jobs, resume, answers and email history, and revokes Gmail access. Type DELETE to confirm.") !== "DELETE") return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/v1/account", { method: "DELETE" });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Couldn't delete.");
+      void askExtension("disconnect");
+      window.location.href = "/";
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't delete."); setBusy(false); }
+  }
+  return (
+    <section className="panel danger-zone">
+      <h2 style={{ margin: "0 0 4px" }}>Delete my data</h2>
+      <p className="muted small">Removes your account and everything JobGuard stores for you. This can&apos;t be undone.</p>
+      <button className="button secondary danger-button" disabled={busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete my account and data"}</button>
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+export function ProfileView({ initial, aiAvailable, initialSettings, tokenStatus }: { initial: Profile; aiAvailable: boolean; initialSettings: Settings; tokenStatus: TokenStatus }) {
+  const [settings, setSettings] = useState(initialSettings);
+  const aiEnabled = aiAvailable && settings.aiAssist;
   const [profile, setProfile] = useState(initial);
   const [version, setVersion] = useState(0); // bumped on resume upload so every field box shows the new values
   const standard = profile.fields.filter((f) => f.group !== "Saved answers");
@@ -63,6 +155,8 @@ export function ProfileView({ initial, aiEnabled, tokenStatus }: { initial: Prof
 
   return (
     <div className="profile-root">
+      <PrivacyCard settings={settings} aiAvailable={aiAvailable} onChange={setSettings} />
+      <ExtensionCard initialStatus={tokenStatus} />
       <ResumeCard resume={profile.resume} aiEnabled={aiEnabled} onUploaded={(p) => { setProfile(p); setVersion((v) => v + 1); }} />
       <section className="panel completeness" aria-label="Profile completeness">
         <div><strong>{filled} of {standard.length}</strong> <span className="muted">standard answers filled</span></div>
@@ -76,7 +170,7 @@ export function ProfileView({ initial, aiEnabled, tokenStatus }: { initial: Prof
         </section>
       ))}
       <SavedAnswers fields={profile.fields.filter((f) => f.group === "Saved answers")} onSaved={setProfile} />
-      <ExtensionCard initialStatus={tokenStatus} />
+      <DangerZone />
     </div>
   );
 }
@@ -116,8 +210,8 @@ function ResumeCard({ resume, aiEnabled, onUploaded }: { resume: Resume; aiEnabl
       </div>
       {message && <p className={message.kind} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
       <p className="muted small" style={{ marginBottom: 0 }}>{aiEnabled
-        ? "Your resume is stored encrypted. To read it, its contents are sent to Google Gemini; on Gemini’s free tier Google may use them to improve its models."
-        : "Your resume is stored encrypted. Automatic reading is off on this server, so fill the answers yourself."}</p>
+        ? "Your resume is stored encrypted. With AI assist on, it is sent to Google Gemini to read it; on Gemini’s free tier Google may use it to improve its models."
+        : "Your resume is stored encrypted and is not sent anywhere. Turn on AI assist above to have it read automatically, or fill the answers yourself."}</p>
     </section>
   );
 }

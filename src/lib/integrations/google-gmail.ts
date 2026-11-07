@@ -1,7 +1,9 @@
 import "server-only";
 
 const READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const SCOPES = [READ_SCOPE, "openid", "email"];
+// Sign-in asks only for your email (no Google review needed); Gmail read access is a separate, optional beta.
+const SIGN_IN_SCOPES = ["openid", "email"];
+const GMAIL_SCOPES = [READ_SCOPE, "openid", "email"];
 export const OAUTH_STATE_COOKIE = "jpap_oauth_state";
 /** Google lets users untick Gmail access on the consent screen; sign-in still works without it. */
 export function grantedGmailRead(scopes: unknown) { return String(scopes || "").split(" ").includes(READ_SCOPE); }
@@ -15,13 +17,15 @@ export function googleConfig() {
   if (encryptionKey.length !== 32) throw new Error("GMAIL_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
   return { clientId, clientSecret, baseUrl: baseUrl.replace(/\/$/, ""), encryptionKey };
 }
-export function gmailScopes() { return SCOPES; }
 export { encrypt as encryptToken, decrypt as decryptToken } from "@/lib/crypto";
-export function makeGoogleAuthUrl(state: string) {
+export function makeGoogleAuthUrl(state: string, { gmail }: { gmail: boolean }) {
   const { clientId, baseUrl } = googleConfig(); const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", clientId); url.searchParams.set("redirect_uri", `${baseUrl}/api/integrations/gmail/callback`);
-  url.searchParams.set("response_type", "code"); url.searchParams.set("scope", SCOPES.join(" "));
-  url.searchParams.set("access_type", "offline"); url.searchParams.set("prompt", "consent"); url.searchParams.set("include_granted_scopes", "true"); url.searchParams.set("state", state);
+  url.searchParams.set("response_type", "code"); url.searchParams.set("scope", (gmail ? GMAIL_SCOPES : SIGN_IN_SCOPES).join(" "));
+  // Only Gmail needs a refresh token (offline + consent); plain sign-in just lets you pick an account.
+  if (gmail) { url.searchParams.set("access_type", "offline"); url.searchParams.set("prompt", "consent"); }
+  else url.searchParams.set("prompt", "select_account");
+  url.searchParams.set("state", state);
   return url.toString();
 }
 export async function exchangeCode(code: string) {

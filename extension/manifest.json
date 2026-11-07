@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
   "name": "JobGuard Autofill",
-  "version": "0.2.0",
-  "description": "Fills job applications from your JobGuard answer bank. You review and submit; it never clicks Submit.",
+  "version": "0.3.0",
+  "description": "Fills job applications from your JobGuard answers and keeps your job statuses up to date. You review and submit; it never clicks Submit.",
   "permissions": ["storage", "activeTab", "scripting", "alarms"],
-  "host_permissions": ["http://localhost/*", "https://*.vercel.app/*"],
-  "optional_host_permissions": ["https://*/*"],
+  "host_permissions": ["https://jobguard-lemon.vercel.app/*", "http://localhost/*", "https://mail.google.com/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "JobGuard Autofill" },
   "options_page": "options.html",
@@ -22,6 +21,16 @@
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": true
+    },
+    {
+      "matches": ["https://jobguard-lemon.vercel.app/*", "http://localhost/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["gmail.js"],
+      "run_at": "document_idle"
     }
   ]
 }

@@ -4,8 +4,11 @@ const msg = document.getElementById("msg");
 document.getElementById("settings").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
 chrome.runtime.sendMessage({ type: "api", path: "/api/ext/me" }, (reply) => {
-  if (reply?.ok) { status.textContent = `Connected as ${reply.data.email}`; fillButton.disabled = false; loadDue(); }
-  else { status.className = "err"; status.textContent = reply?.error || "Not connected. Open Settings."; }
+  if (reply?.ok) { status.textContent = `Connected as ${reply.data.email}`; fillButton.disabled = false; loadDue(); return; }
+  // Not connected: one click opens JobGuard, which connects the extension by itself.
+  status.textContent = "Not connected to your JobGuard account yet.";
+  fillButton.textContent = "Connect JobGuard"; fillButton.disabled = false;
+  fillButton.onclick = () => chrome.tabs.create({ url: "https://jobguard-lemon.vercel.app/profile?connect=extension" });
 });
 
 // Jobs due within 48 hours: one click opens the application, and the form fills itself there.

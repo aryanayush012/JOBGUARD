@@ -7,7 +7,8 @@ import { jsonError } from "@/lib/http";
 import { loadProfile } from "@/lib/profile";
 import { planAnswers, profileText } from "@/lib/profile-fields";
 import { draftAnswers, geminiConfigured } from "@/lib/gemini";
-import { normalizeJobUrl } from "@/lib/jobs";
+import { findJobForUrl } from "@/lib/job-match";
+import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,26 +34,22 @@ export async function POST(request: Request) {
   const { url, questions } = parsed.data;
   const db = await getDb(); const userId = new ObjectId(user.id);
 
-  const [{ fields }, job] = await Promise.all([loadProfile(db, userId), findJob(db, userId, url)]);
+  const [{ fields }, job, settings] = await Promise.all([loadProfile(db, userId), findJob(db, userId, url), getSettings(db, userId)]);
   const { answers, unknown, skipped } = planAnswers(questions, fields);
 
+  // Drafts send your profile and the form's questions to Gemini, so they only happen when you've turned AI assist on.
+  const aiOn = settings.aiAssist && geminiConfigured();
   let drafts: { id: string; value: string; source: "AI" }[] = []; let aiError: string | undefined;
-  if (unknown.length && geminiConfigured()) {
+  if (unknown.length && aiOn) {
     try {
       const drafted = await draftAnswers(profileText(fields), unknown, { company: job?.company, title: job?.title });
       drafts = [...drafted].map(([id, value]) => ({ id, value, source: "AI" as const }));
     } catch (error) { aiError = error instanceof Error ? error.message : "AI drafting failed."; }
   }
-  return NextResponse.json({ job, answers: [...answers, ...drafts], skipped, aiError, aiEnabled: geminiConfigured() });
+  return NextResponse.json({ job, answers: [...answers, ...drafts], skipped, aiError, aiEnabled: aiOn, unanswered: aiOn ? 0 : unknown.length });
 }
 
-/** The saved job this application page belongs to (same posting URL, or the apply page under it). */
 async function findJob(db: Awaited<ReturnType<typeof getDb>>, userId: ObjectId, pageUrl: string) {
-  let page: string;
-  try { page = normalizeJobUrl(pageUrl).replace(/\/(apply|application)(\/.*)?$/i, ""); } catch { return null; }
-  const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project<{ _id: ObjectId; company?: string; title?: string; normalizedSourceUrl?: string; applicationUrl?: string }>({ company: 1, title: 1, normalizedSourceUrl: 1, applicationUrl: 1 }).limit(200).toArray();
-  const norm = (u?: string) => { try { return u ? normalizeJobUrl(u).split("?")[0] : ""; } catch { return ""; } };
-  const base = page.split("?")[0];
-  const job = jobs.find((j) => [norm(j.normalizedSourceUrl), norm(j.applicationUrl)].some((u) => u && (base.startsWith(u) || u.startsWith(base))));
+  const job = await findJobForUrl(db, userId, pageUrl);
   return job ? { id: String(job._id), company: String(job.company || ""), title: String(job.title || "") } : null;
 }

@@ -8,7 +8,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    // The JobGuard extension marks <html> as soon as the page starts loading so the Profile page can detect it.
+    <html lang="en" suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

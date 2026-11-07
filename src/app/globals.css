@@ -177,6 +177,19 @@ p { line-height: 1.65; }
 .saved-answer { border-top: 1px solid #22262c; }
 .saved-answer .field-row { border: 0; padding-bottom: 4px; }
 .saved-answer-meta { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-bottom: 10px; }
+.privacy-doc h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+.privacy-doc h2:first-child { margin-top: 0; }
+.privacy-doc li { margin: 6px 0; line-height: 1.6; }
+.privacy-doc a { color: var(--accent); }
+.toggle-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid #22262c; cursor: pointer; }
+.toggle-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
+.toggle-row > span { display: grid; gap: 3px; }
+.toggle-row.is-disabled { opacity: .55; cursor: default; }
+.ext-install { display: grid; gap: 10px; justify-items: start; }
+.ext-install code, .toggle-row code { font-size: .8rem; padding: 1px 5px; border-radius: 5px; background: #0b0c0e; border: 1px solid var(--border); }
+.danger-zone { border-color: rgba(255,139,139,.3); }
+.danger-button { color: var(--danger); border-color: rgba(255,139,139,.4); }
+.danger-button:hover { background: rgba(255,139,139,.08); }
 .token-box { margin-top: 12px; padding: 14px; border: 1px solid rgba(250,184,26,.35); border-radius: 12px; background: rgba(250,184,26,.05); display: grid; gap: 10px; }
 .token-box p { margin: 0; }
 .token-row { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 10px; align-items: center; }

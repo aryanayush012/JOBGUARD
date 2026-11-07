@@ -54,6 +54,8 @@ async function ensureIndexes(db: Db) {
     db.collection("gmailEvents").createIndex({ userId: 1, messageId: 1 }, { unique: true }),
     db.collection("gmailEvents").createIndex({ userId: 1, needsReview: 1, processedAt: -1 }),
     db.collection("availabilityChecks").createIndex({ userId: 1, jobId: 1, checkedAt: -1 }),
-    db.collection("profiles").createIndex({ userId: 1 }, { unique: true })
+    db.collection("profiles").createIndex({ userId: 1 }, { unique: true }),
+    db.collection("apiTokens").createIndex({ tokenHash: 1 }, { unique: true }),
+    db.collection("apiTokens").createIndex({ userId: 1, revokedAt: 1 })
   ]).catch((error) => console.error("MongoDB index setup failed:", error));
 }

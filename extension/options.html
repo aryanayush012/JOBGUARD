@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>JobGuard Autofill settings</title>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5f6f7; background: #0f1012; }
+    main { max-width: 520px; margin: 48px auto; padding: 24px; background: #17191d; border: 1px solid #2b2f36; border-radius: 18px; display: grid; gap: 16px; }
+    h1 { margin: 0; font-size: 22px; letter-spacing: -.03em; } h1 span { color: #fab81a; }
+    label { display: grid; gap: 6px; color: #a7adb7; }
+    input[type=text], input[type=password] { padding: 11px 13px; border-radius: 10px; border: 1px solid #2b2f36; background: #101114; color: #f5f6f7; font: inherit; }
+    .check { display: flex; gap: 8px; align-items: center; color: #f5f6f7; }
+    button { border: 0; border-radius: 10px; padding: 11px 14px; font-weight: 700; cursor: pointer; background: #fab81a; color: #17130a; justify-self: start; }
+    .muted { color: #a7adb7; font-size: 13px; } .ok { color: #9ce3b1; } .err { color: #ff8b8b; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>JOB<span>GUARD</span> Autofill</h1>
+    <p class="muted">On JobGuard, open <b>Profile → Browser extension → Connect extension</b>, then paste the URL and token here.</p>
+    <label>JobGuard URL<input type="text" id="baseUrl" placeholder="https://your-app.vercel.app"></label>
+    <label>Token<input type="password" id="token" placeholder="jg_…" autocomplete="off"></label>
+    <label class="check"><input type="checkbox" id="autoFill"> Fill automatically when an application form opens (Workday, Greenhouse, Lever, Ashby, SmartRecruiters)</label>
+    <button id="save">Save and test</button>
+    <div id="result" class="muted"></div>
+    <p class="muted">The extension fills fields and attaches your resume. It never clicks Submit, never touches password fields, and leaves personal questions (gender, disability…) for you.</p>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

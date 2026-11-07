@@ -2,32 +2,29 @@ import "server-only";
 import type { Db, Document, WithId } from "mongodb";
 import { decryptToken, getAccessToken, gmailApi } from "@/lib/integrations/google-gmail";
 import { detectReferral, parseFrom } from "@/lib/referral-email";
+import { classify, extractVerification } from "@/lib/email-classify";
 
 type Header = { name: string; value: string };
 type GmailMessage = { id: string; threadId?: string; snippet?: string; internalDate?: string; payload?: { headers?: Header[]; mimeType?: string; body?: { data?: string }; parts?: GmailMessage["payload"][] } };
-function decodePart(payload?: GmailMessage["payload"]): string {
+function rawPart(payload?: GmailMessage["payload"]): string {
   if (!payload) return ""; let result = "";
   if (payload.body?.data) { try { result += Buffer.from(payload.body.data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"); } catch {} }
-  for (const part of payload.parts || []) result += "\n" + decodePart(part);
-  return result.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").slice(0, 12000);
+  for (const part of payload.parts || []) result += "\n" + rawPart(part);
+  return result;
+}
+function decodePart(payload?: GmailMessage["payload"]): string {
+  return rawPart(payload).replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").slice(0, 12000);
 }
 function header(message: GmailMessage, name: string) { return message.payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || ""; }
-function classify(subject: string, text: string) {
-  const all = `${subject}\n${text}`.toLowerCase();
-  if (/application.{0,35}(was )?rejected|not moving forward|regret to inform|unsuccessful in your application|decided to pursue other candidates/.test(all)) return { type: "APPLICATION_REJECTED", confidence: "HIGH", label: "Application rejection" };
-  if (/interview.{0,35}(invite|invitation|scheduled|availability)|schedule.{0,20}interview|technical interview|meet with.{0,30}(team|hiring manager)/.test(all)) return { type: "INTERVIEW_UPDATE", confidence: "MEDIUM", label: "Interview update" };
-  if (/referral.{0,40}(submitted|successfully referred|has referred|was referred)|referred you for|employee referral.{0,30}(complete|submitted)/.test(all)) return { type: "REFERRAL_REPORTED", confidence: "MEDIUM", label: "Referral mentioned" };
-  if (/thank you for applying|application (has been|was) received|successfully applied|we have received your application|application confirmation|your application for/.test(all)) return { type: "APPLICATION_SUBMITTED", confidence: "HIGH", label: "Application confirmation" };
-  if (/under review|reviewing your application|application status update|recruiter.{0,25}(reached out|contact)|next steps in the hiring/.test(all)) return { type: "APPLICATION_UPDATE", confidence: "MEDIUM", label: "Application update" };
-  if (/job.{0,20}(closed|no longer available)|position.{0,20}(filled|closed)|applications are now closed/.test(all)) return { type: "JOB_CLOSED_NOTICE", confidence: "MEDIUM", label: "Job closure mentioned" };
-  return null;
-}
 // Gmail's internalDate (when it received the mail) is reliable; the Date header is sender-controlled and may not parse.
 function emailDate(internalDate: string | undefined, header: string) {
   for (const d of [internalDate ? new Date(Number(internalDate)) : null, header ? new Date(header) : null]) if (d && !Number.isNaN(d.getTime())) return d;
   return null;
 }
-function matchesGeneric(type: string) { return ["APPLICATION_SUBMITTED", "APPLICATION_REJECTED", "INTERVIEW_UPDATE", "APPLICATION_UPDATE", "JOB_CLOSED_NOTICE"].includes(type); }
+function matchesGeneric(type: string) { return ["APPLICATION_SUBMITTED", "APPLICATION_REJECTED", "INTERVIEW_UPDATE", "APPLICATION_UPDATE", "JOB_CLOSED_NOTICE", "ASSESSMENT_INVITE", "COMPLETE_APPLICATION"].includes(type); }
+const ACTION_TYPES = ["ASSESSMENT_INVITE", "COMPLETE_APPLICATION"];
+// A later confirmation, interview or rejection means the earlier "action needed" is done or moot.
+const RESOLVES_ACTION = ["APPLICATION_SUBMITTED", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"];
 
 /** Reads recent job emails for one Gmail connection and updates matching jobs. Records success/failure on the connection. */
 export async function syncGmail(db: Db, connection: WithId<Document>) {
@@ -39,7 +36,7 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
     const search = (q: string, max: number) => gmailApi<ListResult>(access, "messages?q=" + encodeURIComponent(q) + `&maxResults=${max}`);
     // Referral emails get their own query so busy inboxes can't push them out of the general 100.
     const [general, referralList] = await Promise.all([
-      search('newer_than:180d {application referral interview recruiter hiring "position filled"}', 100),
+      search('newer_than:180d {application referral interview recruiter hiring "position filled" assessment hackerrank codility codesignal}', 100),
       search('newer_than:180d -in:sent {referred referral}', 50)
     ]);
     const listed = [...new Map([...(general.messages || []), ...(referralList.messages || [])].map((m) => [m.id, m])).values()];
@@ -53,7 +50,7 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
     if (listed.length && !messages.length) throw new Error("Could not read any Gmail messages.");
     // Oldest first, so when several emails touch the same job the newest one's status wins.
     messages.sort((a, b) => Number(a.internalDate || 0) - Number(b.internalDate || 0));
-    const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1 }).toArray();
+    const jobs = await db.collection("jobs").find({ userId, archivedAt: null }).project({ _id: 1, company: 1, title: 1, sourceUrl: 1, applicationUrl: 1, referred: 1, referredBy: 1, referralSetBy: 1, applied: 1, appliedSetBy: 1, actionNeeded: 1 }).toArray();
     const selfEmail = String(connection.email || "").toLowerCase();
     let processed = 0, matched = 0, needsReview = 0, referralsDetected = 0;
     for (const message of messages) {
@@ -94,8 +91,16 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
       if (event.type === "APPLICATION_REJECTED") update.emailDetectedApplicationStatus = "REJECTED";
       if (event.type === "INTERVIEW_UPDATE") update.emailDetectedApplicationStatus = "INTERVIEW";
       if (event.type === "REFERRAL_REPORTED" && !referral) update.emailDetectedReferralStatus = "REPORTED_BY_EMAIL";
-      // A confirmation, interview or rejection means you applied: move the job to "Applied" unless you switched it off yourself.
-      if (["APPLICATION_SUBMITTED", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"].includes(event.type) && job.applied !== true && !(job.appliedSetBy === "USER" && job.applied === false)) {
+      // An assessment or "finish your application" email puts an "Action needed" chip on the job, linked to the email.
+      const unset: Record<string, ""> = {};
+      if (ACTION_TYPES.includes(event.type)) {
+        update.actionNeeded = { type: event.type, label: event.label, messageId: message.id, at: eventDoc.emailDate || new Date() };
+        job.actionNeeded = update.actionNeeded;
+      } else if (RESOLVES_ACTION.includes(event.type) && job.actionNeeded && (!eventDoc.emailDate || eventDoc.emailDate >= job.actionNeeded.at)) {
+        unset.actionNeeded = ""; job.actionNeeded = null;
+      }
+      // A confirmation, assessment, interview or rejection means you applied: move the job to "Applied" unless you switched it off yourself.
+      if (["APPLICATION_SUBMITTED", "ASSESSMENT_INVITE", "INTERVIEW_UPDATE", "APPLICATION_REJECTED"].includes(event.type) && job.applied !== true && !(job.appliedSetBy === "USER" && job.applied === false)) {
         Object.assign(update, { applied: true, appliedSetBy: "EMAIL", appliedAt: eventDoc.emailDate || new Date() });
         job.applied = true;
       }
@@ -110,7 +115,7 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
         }
         Object.assign(job, { referred: update.referred ?? job.referred, referredBy: update.referredBy ?? job.referredBy }); // later emails this sync see it
       }
-      await db.collection("jobs").updateOne({ _id: job._id, userId }, { $set: update });
+      await db.collection("jobs").updateOne({ _id: job._id, userId }, { $set: update, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
     }
     await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncedAt: new Date(), lastSyncStatus: "SUCCESS" } });
     return { messagesProcessed: processed, matchedJobs: matched, needsReview, referralsDetected };
@@ -118,4 +123,28 @@ export async function syncGmail(db: Db, connection: WithId<Document>) {
     await db.collection("gmailConnections").updateOne({ _id: connection._id }, { $set: { lastSyncStatus: "FAILED", lastSyncError: error instanceof Error ? error.message.slice(0, 250) : "Sync failed" } });
     throw error;
   }
+}
+
+/**
+ * The newest verification code or link emailed in the last 20 minutes (read-only), for the extension to
+ * offer while you create an account on an application site. Emails mentioning the site are preferred.
+ */
+export async function findVerification(connection: WithId<Document>, siteHost: string) {
+  const access = await getAccessToken(decryptToken(String(connection.encryptedRefreshToken)));
+  const list = await gmailApi<{ messages?: { id: string }[] }>(access, "messages?q=" + encodeURIComponent("newer_than:1d {verify verification code otp passcode confirm activate}") + "&maxResults=10");
+  const since = Date.now() - 20 * 60 * 1000;
+  const messages = (await Promise.allSettled((list.messages || []).map((m) => gmailApi<GmailMessage>(access, `messages/${encodeURIComponent(m.id)}?format=full`))))
+    .flatMap((r) => (r.status === "fulfilled" && Number(r.value.internalDate || 0) >= since ? [r.value] : []))
+    .sort((a, b) => Number(b.internalDate || 0) - Number(a.internalDate || 0));
+  // "abcfinancial.wd5.myworkdayjobs.com" → ["abcfinancial", "myworkdayjobs"]: words that tie an email to this site.
+  const siteWords = siteHost.toLowerCase().split(".").filter((w) => w.length >= 4 && !/^(www|jobs|careers|apply|boards|com|wd\d+)$/.test(w));
+  const found = messages.map((message) => {
+    const raw = rawPart(message.payload);
+    const links = [...raw.matchAll(/href=["'](https:\/\/[^"']+)["']/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
+    const subject = header(message, "Subject"); const from = header(message, "From");
+    const result = extractVerification(subject, `${message.snippet || ""} ${decodePart(message.payload)}`, links);
+    const relevant = siteWords.some((w) => `${from} ${subject} ${raw}`.toLowerCase().includes(w));
+    return result && { ...result, from: parseFrom(from).email || from, subject: subject.slice(0, 200), receivedAt: new Date(Number(message.internalDate)).toISOString(), relevant };
+  }).filter((x) => x !== null);
+  return found.find((f) => f.relevant) ?? found[0] ?? null;
 }

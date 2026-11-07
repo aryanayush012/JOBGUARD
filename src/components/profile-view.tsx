@@ -15,7 +15,47 @@ async function send(url: string, init: RequestInit) {
   return data as Profile & { warning?: string };
 }
 
-export function ProfileView({ initial, aiEnabled }: { initial: Profile; aiEnabled: boolean }) {
+type TokenStatus = { createdAt: string; lastUsedAt: string | null } | null;
+const fmt = (iso: string) => new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(new Date(iso));
+
+function ExtensionCard({ initialStatus }: { initialStatus: TokenStatus }) {
+  const [status, setStatus] = useState(initialStatus);
+  const [token, setToken] = useState(""); const [copied, setCopied] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  async function call(method: "POST" | "DELETE") {
+    if (method === "POST" && status && !confirm("Create a new token? The extension's current token will stop working until you paste the new one.")) return;
+    if (method === "DELETE" && !confirm("Disconnect the extension? It stops filling forms until you connect it again.")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/v1/extension/token", { method });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Request failed.");
+      if (method === "POST") { setToken(data.token); setStatus({ createdAt: new Date().toISOString(), lastUsedAt: null }); } else { setToken(""); setStatus(null); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Request failed."); } finally { setBusy(false); }
+  }
+  async function copy(text: string, what: string) { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(""), 1500); } catch { /* user can select it manually */ } }
+  return (
+    <section className="panel">
+      <div className="viz-card-head"><div><h2 style={{ margin: 0 }}>Browser extension</h2><p className="muted small" style={{ margin: "4px 0 0" }}>Fills job applications from this answer bank. It never clicks Submit.</p></div>
+        {status ? <span className="chip src-user">Connected</span> : <span className="chip chip-status-unknown">Not connected</span>}</div>
+      {status && !token && <p className="small muted">Token created {fmt(status.createdAt)} · {status.lastUsedAt ? `last used ${fmt(status.lastUsedAt)}` : "not used yet"}</p>}
+      {token && (
+        <div className="token-box">
+          <p className="small">Paste these into the extension’s settings. <strong>The token is shown only once.</strong></p>
+          <div className="token-row"><span className="muted small">JobGuard URL</span><code>{origin}</code><button className="button secondary small-button" onClick={() => void copy(origin, "url")}>{copied === "url" ? "Copied ✓" : "Copy"}</button></div>
+          <div className="token-row"><span className="muted small">Token</span><code>{token}</code><button className="button secondary small-button" onClick={() => void copy(token, "token")}>{copied === "token" ? "Copied ✓" : "Copy"}</button></div>
+        </div>
+      )}
+      <div className="actions" style={{ marginTop: 12 }}>
+        <button className="button" disabled={busy} onClick={() => void call("POST")}>{status ? "Create new token" : "Connect extension"}</button>
+        {status && <button className="button secondary" disabled={busy} onClick={() => void call("DELETE")}>Disconnect</button>}
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+export function ProfileView({ initial, aiEnabled, tokenStatus }: { initial: Profile; aiEnabled: boolean; tokenStatus: TokenStatus }) {
   const [profile, setProfile] = useState(initial);
   const [version, setVersion] = useState(0); // bumped on resume upload so every field box shows the new values
   const standard = profile.fields.filter((f) => f.group !== "Saved answers");
@@ -36,6 +76,7 @@ export function ProfileView({ initial, aiEnabled }: { initial: Profile; aiEnable
         </section>
       ))}
       <SavedAnswers fields={profile.fields.filter((f) => f.group === "Saved answers")} onSaved={setProfile} />
+      <ExtensionCard initialStatus={tokenStatus} />
     </div>
   );
 }

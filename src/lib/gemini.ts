@@ -33,6 +33,39 @@ async function generate(parts: unknown[], schema: unknown) {
   throw new Error(`Gemini request failed (${lastError}). Google's free AI is busy; try again in a minute.`);
 }
 
+export type DraftQuestion = { id: string; label: string; options?: string[] };
+
+/**
+ * Drafts answers to form questions the answer bank doesn't cover, as the candidate, from their profile.
+ * Never invents facts: anything the profile doesn't support comes back empty for the user to answer.
+ */
+export async function draftAnswers(profileText: string, questions: DraftQuestion[], job: { company?: string; title?: string }) {
+  if (!questions.length) return new Map<string, string>();
+  const result = await generate([{ text: [
+    "You are filling a job application form for the candidate below. Answer each question in the candidate's voice (first person).",
+    "Rules:",
+    "- Use only facts from the candidate profile. If the profile doesn't support an answer (numbers, dates, salary, visa, personal facts), return an empty string. Never invent.",
+    "- If a question lists options, the answer must be exactly one of those options, or empty.",
+    "- Short questions get short answers. Open questions (why this company, describe…) get 2-4 specific sentences tied to the role and company.",
+    `Job: ${job.title || "unknown role"} at ${job.company || "unknown company"}.`,
+    `Candidate profile:\n${profileText}`,
+    `Questions (JSON): ${JSON.stringify(questions.map((q) => ({ id: q.id, question: q.label, ...(q.options?.length ? { options: q.options.slice(0, 50) } : {}) })))}`
+  ].join("\n") }], {
+    type: "ARRAY",
+    items: { type: "OBJECT", properties: { id: { type: "STRING" }, answer: { type: "STRING" } }, required: ["id", "answer"] }
+  });
+  const answers = new Map<string, string>();
+  for (const item of Array.isArray(result) ? result : []) {
+    const { id, answer } = (item ?? {}) as { id?: unknown; answer?: unknown };
+    const q = questions.find((x) => x.id === id);
+    if (!q || typeof answer !== "string" || !answer.trim()) continue;
+    // An option question must come back as one of its options, or it's dropped.
+    if (q.options?.length && !q.options.includes(answer.trim())) continue;
+    answers.set(q.id, answer.trim().slice(0, 4000));
+  }
+  return answers;
+}
+
 /** Reads a resume PDF and returns the standard resume fields (blank when the resume doesn't say). */
 export async function extractProfile(pdf: Buffer): Promise<Record<string, string>> {
   const fields = STANDARD_FIELDS.filter((f) => f.fromResume);

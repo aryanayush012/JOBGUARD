@@ -13,8 +13,10 @@ export const dynamic = "force-dynamic";
 type Job = {
   _id: ObjectId; sourceUrl: string; company?: string; title?: string; location?: string;
   deadlineAt?: Date | null; deadlineConfidence?: string; availabilityStatus?: string; createdAt?: Date; emailDetectedApplicationStatus?: string; emailDetectedReferralStatus?: string; lastEmailEvidenceAt?: Date | null;
-  referred?: boolean; referredBy?: string; applied?: boolean;
+  referred?: boolean; referredBy?: string; applied?: boolean; applicationUrl?: string;
+  actionNeeded?: { type: string; label: string; messageId: string; at: Date } | null;
 };
+const ACTION_DAYS = 14; // an assessment/"finish your application" chip stays this long unless a later email resolves it
 
 const TABS: { key: JobTab; label: string; empty: string }[] = [
   { key: "not-applied", label: "Not applied", empty: "Nothing waiting. New jobs you save land here." },
@@ -112,7 +114,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   {jobTab(job) === "missed" && <span className="chip chip-missed">Deadline passed</span>}
                   {job.referred && <span className="chip chip-referred">{job.referredBy ? `Referred by ${job.referredBy}` : "Referred"}</span>}
                   <span className={`chip chip-status-${(job.availabilityStatus || "UNVERIFIED").toLowerCase()}`}>{statusLabel(job.availabilityStatus)}</span>
+                  {job.actionNeeded && Date.now() - new Date(job.actionNeeded.at).getTime() < ACTION_DAYS * 864e5 && (
+                    <a className="chip chip-action" href={`https://mail.google.com/mail/#all/${job.actionNeeded.messageId}`} target="_blank" rel="noreferrer" title="Open the email in Gmail">Action needed: {job.actionNeeded.label} ↗</a>
+                  )}
                 </div>
+                {jobTab(job) !== "applied" && (
+                  // Opens the application page; the JobGuard extension fills it there. You still submit.
+                  <a className={`button small-button apply-now${jobTab(job) === "missed" ? " secondary" : ""}`} href={job.applicationUrl || job.sourceUrl} target="_blank" rel="noreferrer">
+                    {jobTab(job) === "missed" ? "Try applying anyway" : "Apply now"}
+                  </a>
+                )}
               </article>
             ))}
           </div>

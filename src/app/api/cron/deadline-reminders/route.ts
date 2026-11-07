@@ -31,8 +31,8 @@ export async function GET(request: Request) {
     const to = String(connection?.email || "");
     if (!to) continue;
     try {
-      const lines = jobs.map((job) => `• ${job.title || "Untitled role"} at ${job.company || "unknown company"}\n  ${job.applicationUrl || job.sourceUrl}`);
-      const text = `The application deadline for ${jobs.length === 1 ? "this job is" : "these jobs is"} today. Apply before end of day:\n\n${lines.join("\n\n")}\n\nOpen your dashboard: ${base}/dashboard\n\n— JobGuard`;
+      const lines = jobs.map((job) => `• ${job.title || "Untitled role"} at ${job.company || "unknown company"}\n  Apply now: ${job.applicationUrl || job.sourceUrl}`);
+      const text = `The application deadline for ${jobs.length === 1 ? "this job is" : "these jobs is"} today. Apply before end of day:\n\n${lines.join("\n\n")}\n\nWith the JobGuard extension installed, the application form fills itself when you open the link; you review and submit.\n\nOpen your dashboard: ${base}/dashboard\n\n— JobGuard`;
       await sendEmail(to, `Apply before EOD: ${jobs.length} job deadline${jobs.length === 1 ? "" : "s"} today`, text);
       await db.collection("jobs").updateMany({ _id: { $in: jobs.map((job) => job._id) } }, { $set: { deadlineReminderSentAt: new Date() } });
       emailsSent++;

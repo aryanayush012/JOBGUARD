@@ -70,6 +70,44 @@ export function mergeResume(stored: ProfileField[], extracted: Record<string, st
   });
 }
 
+/** Diversity/personal questions are never filled or drafted: you answer them yourself, every time. */
+export function isSensitive(label: string) {
+  return /\b(gender|sex|race|racial|ethnic\w*|disabilit\w*|veteran|sexual orientation|pronouns?|religio\w*|caste|marital|date of birth|dob|age|pregnan\w*|criminal|convict\w*)\b/i.test(label);
+}
+
+/** Maps a saved answer onto a dropdown/radio's options ("Yes" ↔ "Yes, I am authorized", "30 days" ↔ "30 Days"). */
+export function pickOption(value: string, options: string[]) {
+  const v = value.trim().toLowerCase();
+  if (!v) return null;
+  const opts = options.map((o) => ({ o, l: o.trim().toLowerCase() })).filter((x) => x.l && !/^(select|choose|--|please select)/.test(x.l));
+  const yes = /^(yes|y|true|sure|willing|open)\b/.test(v), no = /^(no|n|false|not)\b/.test(v);
+  return opts.find((x) => x.l === v)?.o
+    ?? (yes ? opts.find((x) => /^yes\b/.test(x.l))?.o : no ? opts.find((x) => /^no\b/.test(x.l))?.o : undefined)
+    ?? opts.find((x) => x.l.startsWith(v) || (v.length >= 3 && x.l.includes(v)))?.o
+    ?? opts.find((x) => x.l.length >= 3 && v.includes(x.l))?.o
+    ?? null;
+}
+
+export type FormQuestion = { id: string; label: string; options?: string[] };
+export type PlannedAnswer = { id: string; value: string; source: "BANK"; key: string };
+/** Splits a form's questions into answers from the bank, questions for the AI to draft, and sensitive ones left to you. */
+export function planAnswers(questions: FormQuestion[], fields: ProfileField[]) {
+  const answers: PlannedAnswer[] = []; const unknown: FormQuestion[] = []; const skipped: string[] = [];
+  for (const q of questions) {
+    if (isSensitive(q.label)) { skipped.push(q.id); continue; }
+    const field = matchField(q.label, fields);
+    const value = field && (q.options?.length ? pickOption(field.value, q.options) : field.value);
+    if (field && value) answers.push({ id: q.id, value, source: "BANK", key: field.key });
+    else unknown.push(q);
+  }
+  return { answers, unknown, skipped };
+}
+
+/** The profile as plain lines for the AI (company-specific answers from other companies left out). */
+export function profileText(fields: ProfileField[]) {
+  return fields.filter((f) => f.value && f.reusable).map((f) => `${f.label}: ${f.value}`).join("\n");
+}
+
 /** Finds the saved answer for a form question: exact label/alias, then the longest alias inside the question, then word overlap. */
 export function matchField(question: string, fields: ProfileField[]) {
   const q = normalizeLabel(question);

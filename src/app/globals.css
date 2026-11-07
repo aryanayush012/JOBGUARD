@@ -131,6 +131,9 @@ p { line-height: 1.65; }
 .chip { border-radius: 999px; padding: 4px 10px; font-size: .78rem; font-weight: 600; border: 1px solid transparent; }
 .chip-applied { color: #4ade80; background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.3); }
 .chip-missed { color: #fbbf24; background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.3); }
+.chip-action { color: #fda4af; background: rgba(251,113,133,.12); border-color: rgba(251,113,133,.35); text-decoration: none; }
+.chip-action:hover, .chip-action:focus-visible { background: rgba(251,113,133,.2); }
+.apply-now { margin-top: 14px; }
 .chip-referred { color: #c4b5fd; background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.3); }
 .chip-status-open { color: #7dd3fc; background: rgba(125,211,252,.12); border-color: rgba(125,211,252,.3); }
 .chip-status-closed { color: var(--danger); background: rgba(255,139,139,.12); border-color: rgba(255,139,139,.3); }
@@ -174,6 +177,11 @@ p { line-height: 1.65; }
 .saved-answer { border-top: 1px solid #22262c; }
 .saved-answer .field-row { border: 0; padding-bottom: 4px; }
 .saved-answer-meta { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-bottom: 10px; }
+.token-box { margin-top: 12px; padding: 14px; border: 1px solid rgba(250,184,26,.35); border-radius: 12px; background: rgba(250,184,26,.05); display: grid; gap: 10px; }
+.token-box p { margin: 0; }
+.token-row { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.token-row code { overflow-wrap: anywhere; font-size: .82rem; padding: 8px 10px; border-radius: 8px; background: #0b0c0e; border: 1px solid var(--border); }
+@media (max-width: 560px) { .token-row { grid-template-columns: 1fr; } }
 .link-button.delete-link { color: var(--muted); font-size: .82rem; }
 .link-button.delete-link:hover, .link-button.delete-link:focus-visible { color: var(--danger); }
 .add-answer { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-top: 8px; padding-top: 12px; border-top: 1px solid #22262c; }

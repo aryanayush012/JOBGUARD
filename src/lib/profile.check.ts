@@ -1,6 +1,6 @@
 // Self-check for the answer bank: run with `npx tsx src/lib/profile.check.ts`.
 import assert from "node:assert/strict";
-import { isCompanySpecific, matchField, mergeResume, withStandardFields, type ProfileField } from "./profile-fields";
+import { isCompanySpecific, isSensitive, matchField, mergeResume, pickOption, planAnswers, profileText, withStandardFields, type ProfileField } from "./profile-fields";
 
 const now = new Date("2026-11-06T00:00:00Z");
 const custom = (label: string, value: string, reusable = true): ProfileField =>
@@ -38,4 +38,25 @@ assert.ok(isCompanySpecific("Why do you want to join us?"));
 assert.ok(isCompanySpecific("What excites you about this role?"));
 assert.ok(isCompanySpecific("How did you hear about Atlassian?", "Atlassian"));
 assert.ok(!isCompanySpecific("Years of React experience"));
+// Dropdown/radio option mapping
+assert.equal(pickOption("Yes", ["Select…", "Yes, I am authorized", "No"]), "Yes, I am authorized");
+assert.equal(pickOption("no", ["Yes", "No"]), "No");
+assert.equal(pickOption("30 days", ["Immediately", "15 Days", "30 Days", "60 Days"]), "30 Days");
+assert.equal(pickOption("B.Tech", ["High school", "B.Tech / B.E.", "M.Tech"]), "B.Tech / B.E.");
+assert.equal(pickOption("Gurugram", ["Bengaluru", "Pune"]), null);
+
+// Planning a form: bank answers, AI leftovers, sensitive questions skipped
+const plan = planAnswers([
+  { id: "a", label: "Phone number" },
+  { id: "b", label: "Gender" },
+  { id: "c", label: "Are you willing to relocate?", options: ["Yes", "No"] },
+  { id: "d", label: "Describe your biggest project" },
+  { id: "e", label: "Do you have a disability?" }
+], bank.map((f) => f.key === "relocate" ? { ...f, value: "yes" } : f));
+assert.deepEqual(plan.answers.map((a) => [a.id, a.key, a.value]), [["a", "phone", "+91 11111 11111"], ["c", "relocate", "Yes"]]);
+assert.deepEqual(plan.unknown.map((q) => q.id), ["d"]);
+assert.deepEqual(plan.skipped, ["b", "e"]);
+assert.ok(isSensitive("Race/Ethnicity") && isSensitive("Veteran status") && !isSensitive("Years of experience") && !isSensitive("Stage of your career"));
+// Profile text for the AI excludes other companies' "why us" answers
+assert.ok(!profileText(bank).includes("Why do you want to join Google"));
 console.log("profile fields: all checks passed");

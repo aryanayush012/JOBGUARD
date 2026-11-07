@@ -104,6 +104,40 @@ export async function revokeCurrentSession() {
   });
 }
 
+/**
+ * Browser-extension tokens: random, shown to you once, stored only as an HMAC (like session tokens),
+ * one active token per user, revocable from the Profile page.
+ */
+export async function createExtensionToken(userId: ObjectId) {
+  const rawToken = `jg_${randomBytes(32).toString("base64url")}`;
+  const db = await getDb(); const now = new Date();
+  await db.collection("apiTokens").updateMany({ userId, revokedAt: null }, { $set: { revokedAt: now } });
+  await db.collection("apiTokens").insertOne({ userId, tokenHash: hashSessionToken(rawToken), createdAt: now, lastUsedAt: null, revokedAt: null });
+  return rawToken;
+}
+
+export async function revokeExtensionTokens(userId: ObjectId) {
+  const db = await getDb();
+  await db.collection("apiTokens").updateMany({ userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+}
+
+export async function getExtensionTokenStatus(userId: ObjectId) {
+  const db = await getDb();
+  const token = await db.collection("apiTokens").findOne({ userId, revokedAt: null }, { projection: { createdAt: 1, lastUsedAt: 1 } });
+  return token ? { createdAt: (token.createdAt as Date).toISOString(), lastUsedAt: token.lastUsedAt instanceof Date ? token.lastUsedAt.toISOString() : null } : null;
+}
+
+/** The user behind an `Authorization: Bearer jg_…` header from the extension, or null. */
+export async function getUserFromBearer(request: Request) {
+  const rawToken = /^Bearer (jg_[\w-]{20,})$/.exec(request.headers.get("authorization") || "")?.[1];
+  if (!rawToken) return null;
+  const db = await getDb();
+  const token = await db.collection("apiTokens").findOneAndUpdate({ tokenHash: hashSessionToken(rawToken), revokedAt: null }, { $set: { lastUsedAt: new Date() } });
+  if (!token) return null;
+  const user = await db.collection("users").findOne({ _id: token.userId, accountStatus: "ACTIVE" }, { projection: { email: 1 } });
+  return user ? { id: user._id.toString(), email: String(user.email) } : null;
+}
+
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }

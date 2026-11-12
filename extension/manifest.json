@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "JobGuard Autofill",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "Fills job applications from your JobGuard answers and keeps your job statuses up to date. You review and submit; it never clicks Submit.",
   "permissions": ["storage", "activeTab", "scripting", "alarms"],
   "host_permissions": ["https://jobguard-lemon.vercel.app/*", "http://localhost/*", "https://mail.google.com/*"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "JobGuard Autofill" },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": { "default_popup": "popup.html", "default_title": "JobGuard Autofill", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
   "options_page": "options.html",
   "content_scripts": [
     {

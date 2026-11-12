@@ -361,7 +361,7 @@
           ${state.ran ? `<div class="muted">Review everything, then submit the form yourself.</div>` : ""}
           ${verificationHtml()}
           ${state.ran ? `<button class="ghost again">Fill again</button>` : ""}`;
-      root.innerHTML = `<style>${css}</style><div class="card" role="dialog" aria-label="JobGuard Autofill"><div class="head"><div class="brand">JOB<span>GUARD</span></div><button class="x" aria-label="Minimise">–</button></div><div class="body">${body}</div></div>`;
+      root.innerHTML = `<style>${css}</style><div class="card" role="dialog" aria-label="JobGuard Autofill"><div class="head"><svg width="18" height="18" viewBox="0 0 128 128" aria-hidden="true"><path d="M64 10 L108 25 V60 C108 89 89 108 64 118 C39 108 20 89 20 60 V25 Z" fill="#fab81a"/><path d="M42 63 L57 78 L87 47" fill="none" stroke="#0f1012" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="brand">JOB<span>GUARD</span></div><button class="x" aria-label="Minimise">–</button></div><div class="body">${body}</div></div>`;
       root.querySelector(".x").onclick = () => { open = false; render(phase); };
       root.querySelector("button.main:not(.save)")?.addEventListener("click", () => void run());
       root.querySelector(".getcode")?.addEventListener("click", () => void getVerification());

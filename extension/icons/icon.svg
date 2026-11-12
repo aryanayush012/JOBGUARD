@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd25c"/>
+      <stop offset="1" stop-color="#f29d0b"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield (guard) with a check (applied): reads at 16px, JobGuard's accent colours -->
+  <path d="M64 10 L108 25 V60 C108 89 89 108 64 118 C39 108 20 89 20 60 V25 Z" fill="url(#g)" stroke="#0f1012" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M42 63 L57 78 L87 47" fill="none" stroke="#0f1012" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

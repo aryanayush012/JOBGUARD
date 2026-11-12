@@ -29,6 +29,24 @@ assert.equal(key("First Name"), "firstName");
 assert.equal(key("Email address (optional)"), "email");
 assert.equal(key("What is your notice period?"), "noticePeriod");
 assert.equal(key("Expected salary"), "expectedCtc");
+// Zoho Recruit labels (from its field attributes)
+assert.equal(key("Linked In"), "linkedin");
+assert.equal(key("Mobile"), "phone");
+assert.equal(key("Street"), "location");
+assert.equal(key("Country"), "country");
+assert.equal(key("Experience in Years"), "yearsExperience");
+assert.equal(key("Visa Status"), "workAuthorization");
+// Work-history rows and short labels, without catching longer questions
+assert.equal(key("Company"), "currentCompany");
+assert.equal(key("Occupation Title"), "currentTitle");
+assert.equal(key("Employer name"), "currentCompany");
+assert.equal(key("Why do you want to join our company?"), null);
+assert.equal(key("Company (entry 2)"), null); // a previous job's row, never your current company
+assert.equal(key("Tell us about a project your company shipped"), null);
+// Saving a typed answer finds the empty standard field instead of creating a duplicate
+const emptyBank = withStandardFields([]);
+assert.equal(matchField("Current Salary", emptyBank), null);
+assert.equal(matchField("Current Salary", emptyBank, { includeEmpty: true })?.key, "currentCtc");
 assert.equal(key("How many years of React experience do you have?"), "custom-Years of React experience");
 assert.equal(key("Why do you want to join Google?"), null);                         // company-specific answers never reused
 assert.equal(key("Describe a time you resolved a conflict"), null);

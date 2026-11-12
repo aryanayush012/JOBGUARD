@@ -181,6 +181,9 @@ p { line-height: 1.65; }
 .privacy-doc h2:first-child { margin-top: 0; }
 .privacy-doc li { margin: 6px 0; line-height: 1.6; }
 .privacy-doc a { color: var(--accent); }
+.photo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0 4px; padding-top: 14px; border-top: 1px solid #22262c; }
+.photo-thumb { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); flex: none; }
+.photo-empty { display: grid; place-items: center; background: #101114; font-size: 20px; }
 .toggle-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid #22262c; cursor: pointer; }
 .toggle-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
 .toggle-row > span { display: grid; gap: 3px; }

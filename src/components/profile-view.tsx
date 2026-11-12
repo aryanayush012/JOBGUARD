@@ -4,7 +4,46 @@ import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "rea
 import { GROUPS, type ProfileField } from "@/lib/profile-fields";
 
 type Resume = { fileName: string; size: number; uploadedAt: string } | null;
-type Profile = { fields: ProfileField[]; resume: Resume };
+type Profile = { fields: ProfileField[]; resume: Resume; hasPhoto?: boolean };
+
+/** Optional photo for applications that ask for one. Stored encrypted; only the extension attaches it. */
+function PhotoRow({ initial }: { initial: boolean }) {
+  const [has, setHas] = useState(initial); const [version, setVersion] = useState(0);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  async function upload(file?: File) {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setError("Photo must be 2 MB or smaller."); return; }
+    setBusy(true); setError("");
+    try {
+      const body = new FormData(); body.append("photo", file);
+      const response = await fetch("/api/v1/profile/photo", { method: "POST", body });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Upload failed.");
+      setHas(true); setVersion((v) => v + 1);
+    } catch (e) { setError(e instanceof Error ? e.message : "Upload failed."); } finally { setBusy(false); if (input.current) input.current.value = ""; }
+  }
+  async function remove() {
+    setBusy(true);
+    await fetch("/api/v1/profile/photo", { method: "DELETE" }).catch(() => {});
+    setHas(false); setBusy(false);
+  }
+  return (
+    <div className="photo-row">
+      {/* eslint-disable-next-line @next/next/no-img-element -- private, login-only image; next/image's optimizer can't send the session cookie */}
+      {has ? <img src={`/api/v1/profile/photo?v=${version}`} alt="Your profile photo" className="photo-thumb" /> : <span className="photo-thumb photo-empty" aria-hidden="true">👤</span>}
+      <div style={{ display: "grid", gap: 2 }}>
+        <b className="small">Photo (optional)</b>
+        <span className="muted small">For applications with a photo field. JPG, PNG or WebP, up to 2 MB.</span>
+        {error && <span className="error small" role="alert">{error}</span>}
+      </div>
+      <div className="actions" style={{ marginLeft: "auto" }}>
+        <button className="button secondary small-button" disabled={busy} onClick={() => input.current?.click()}>{has ? "Replace" : "Add photo"}</button>
+        {has && <button className="link-button delete-link" disabled={busy} onClick={() => void remove()}>Remove</button>}
+      </div>
+      <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void upload(e.target.files?.[0])} />
+    </div>
+  );
+}
 const SOURCE_LABEL = { RESUME: "From resume", USER: "Edited by you", AI: "AI draft" } as const;
 const LONG = new Set(["summary", "skills"]);
 
@@ -157,7 +196,7 @@ export function ProfileView({ initial, aiAvailable, initialSettings, tokenStatus
     <div className="profile-root">
       <PrivacyCard settings={settings} aiAvailable={aiAvailable} onChange={setSettings} />
       <ExtensionCard initialStatus={tokenStatus} />
-      <ResumeCard resume={profile.resume} aiEnabled={aiEnabled} onUploaded={(p) => { setProfile(p); setVersion((v) => v + 1); }} />
+      <ResumeCard resume={profile.resume} hasPhoto={Boolean(initial.hasPhoto)} aiEnabled={aiEnabled} onUploaded={(p) => { setProfile(p); setVersion((v) => v + 1); }} />
       <section className="panel completeness" aria-label="Profile completeness">
         <div><strong>{filled} of {standard.length}</strong> <span className="muted">standard answers filled</span></div>
         <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={standard.length} aria-valuenow={filled}><span style={{ width: `${(filled / standard.length) * 100}%` }} /></div>
@@ -175,7 +214,7 @@ export function ProfileView({ initial, aiAvailable, initialSettings, tokenStatus
   );
 }
 
-function ResumeCard({ resume, aiEnabled, onUploaded }: { resume: Resume; aiEnabled: boolean; onUploaded: (p: Profile) => void }) {
+function ResumeCard({ resume, hasPhoto, aiEnabled, onUploaded }: { resume: Resume; hasPhoto: boolean; aiEnabled: boolean; onUploaded: (p: Profile) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false); const [drag, setDrag] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "success"; text: string } | null>(null);
@@ -209,6 +248,7 @@ function ResumeCard({ resume, aiEnabled, onUploaded }: { resume: Resume; aiEnabl
         <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => void upload(e.target.files?.[0])} />
       </div>
       {message && <p className={message.kind} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+      <PhotoRow initial={hasPhoto} />
       <p className="muted small" style={{ marginBottom: 0 }}>{aiEnabled
         ? "Your resume is stored encrypted. With AI assist on, it is sent to Google Gemini to read it; on Gemini’s free tier Google may use it to improve its models."
         : "Your resume is stored encrypted and is not sent anywhere. Turn on AI assist above to have it read automatically, or fill the answers yourself."}</p>

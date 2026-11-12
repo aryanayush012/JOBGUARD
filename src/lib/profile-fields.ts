@@ -18,12 +18,13 @@ export const STANDARD_FIELDS: Def[] = [
   { key: "fullName", label: "Full name", group: "Personal", fromResume: true, aliases: ["name", "legal name", "candidate name"] },
   { key: "email", label: "Email", group: "Personal", fromResume: true, aliases: ["email address", "e-mail", "email id"] },
   { key: "phone", label: "Phone", group: "Personal", fromResume: true, aliases: ["phone number", "mobile", "mobile number", "contact number", "telephone", "cell phone"] },
-  { key: "location", label: "Current location", group: "Personal", fromResume: true, aliases: ["city", "location", "current city", "address", "where are you based"] },
-  { key: "linkedin", label: "LinkedIn", group: "Links", fromResume: true, aliases: ["linkedin url", "linkedin profile"] },
+  { key: "location", label: "Current location", group: "Personal", fromResume: true, aliases: ["city", "location", "current city", "address", "street", "street address", "address line 1", "where are you based"] },
+  { key: "country", label: "Country", group: "Personal", fromResume: true, aliases: ["country of residence", "current country", "country you live in"] },
+  { key: "linkedin", label: "LinkedIn", group: "Links", fromResume: true, aliases: ["linkedin url", "linkedin profile", "linked in", "linked in url", "linked in profile"] },
   { key: "github", label: "GitHub", group: "Links", fromResume: true, aliases: ["github url", "github profile"] },
   { key: "portfolio", label: "Portfolio / website", group: "Links", fromResume: true, aliases: ["website", "personal website", "portfolio url", "blog"] },
-  { key: "currentCompany", label: "Current company", group: "Experience", fromResume: true, aliases: ["current employer", "company name", "employer", "current organization"] },
-  { key: "currentTitle", label: "Current job title", group: "Experience", fromResume: true, aliases: ["current title", "designation", "current role", "job title", "current position"] },
+  { key: "currentCompany", label: "Current company", group: "Experience", fromResume: true, aliases: ["current employer", "company name", "company", "employer", "employer name", "organization", "organisation", "current organization", "current organisation"] },
+  { key: "currentTitle", label: "Current job title", group: "Experience", fromResume: true, aliases: ["current title", "designation", "current role", "job title", "current position", "occupation title", "occupation", "position title", "current designation"] },
   { key: "yearsExperience", label: "Total years of experience", group: "Experience", fromResume: true, aliases: ["years of experience", "total experience", "experience in years", "how many years of experience"] },
   { key: "skills", label: "Skills", group: "Experience", fromResume: true, aliases: ["key skills", "technical skills", "skill set"] },
   { key: "summary", label: "Professional summary", group: "Experience", fromResume: true, aliases: ["summary", "about you", "tell us about yourself", "profile summary", "cover letter"] },
@@ -109,15 +110,19 @@ export function profileText(fields: ProfileField[]) {
 }
 
 /** Finds the saved answer for a form question: exact label/alias, then the longest alias inside the question, then word overlap. */
-export function matchField(question: string, fields: ProfileField[]) {
+export function matchField(question: string, fields: ProfileField[], { includeEmpty = false } = {}) {
   const q = normalizeLabel(question);
-  if (!q) return null;
-  const candidates = fields.filter((f) => f.value && f.reusable);
+  // "Why join us?" is never answered by a standard field, nor is an earlier work-history row ("Company (entry 2)").
+  if (!q || isCompanySpecific(question) || /\(entry \d+\)/i.test(question)) return null;
+  const candidates = fields.filter((f) => (includeEmpty || f.value) && f.reusable);
   const names = (f: ProfileField) => [f.label, ...f.aliases].map(normalizeLabel).filter(Boolean);
   const exact = candidates.find((f) => names(f).includes(q));
   if (exact) return exact;
+  // An alias inside a longer question. Single words ("company", "degree") only count in short questions,
+  // so "Why do you want to join our company?" never becomes "Current company".
+  const shortQuestion = q.split(" ").length <= 3;
   let best: { f: ProfileField; len: number } | null = null;
-  for (const f of candidates) for (const n of names(f)) if (n.length >= 4 && new RegExp(`\\b${n}\\b`).test(q) && n.length > (best?.len ?? 0)) best = { f, len: n.length };
+  for (const f of candidates) for (const n of names(f)) if (n.length >= 4 && (n.includes(" ") || shortQuestion) && new RegExp(`\\b${n}\\b`).test(q) && n.length > (best?.len ?? 0)) best = { f, len: n.length };
   if (best) return best.f;
   const qWords = new Set(q.split(" "));
   for (const f of candidates) for (const n of names(f)) {

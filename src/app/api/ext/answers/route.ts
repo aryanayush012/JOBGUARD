@@ -6,7 +6,7 @@ import { getUserFromBearer } from "@/lib/auth";
 import { getDb } from "@/lib/mongodb";
 import { jsonError } from "@/lib/http";
 import { loadProfile, saveFields } from "@/lib/profile";
-import { isCompanySpecific, isSensitive, normalizeLabel } from "@/lib/profile-fields";
+import { isCompanySpecific, isSensitive, matchField, normalizeLabel } from "@/lib/profile-fields";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,8 +28,11 @@ export async function POST(request: Request) {
   for (const { label, value } of parsed.data.answers) {
     if (isSensitive(label)) continue; // never stored: you answer these yourself each time
     const reusable = !isCompanySpecific(label, parsed.data.company);
-    const existing = fields.find((f) => f.group === "Saved answers" && normalizeLabel(f.label) === normalizeLabel(label));
-    if (existing) Object.assign(existing, { value, source: "USER", reusable, updatedAt: now });
+    // Same question in other words (e.g. "Company" → Current company): update that field rather than adding a duplicate.
+    const existing = (reusable ? matchField(label, fields, { includeEmpty: true }) : null)
+      ?? fields.find((f) => f.group === "Saved answers" && normalizeLabel(f.label) === normalizeLabel(label));
+    if (existing?.value === value) continue;
+    if (existing) Object.assign(existing, { value, source: "USER", updatedAt: now }, existing.group === "Saved answers" ? { reusable } : {});
     else fields.push({ key: `q-${randomBytes(6).toString("hex")}`, label, group: "Saved answers", aliases: [], value, source: "USER", fromResume: false, reusable, updatedAt: now });
     saved++;
   }

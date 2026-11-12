@@ -7,10 +7,10 @@ import { withStandardFields, type ProfileField } from "@/lib/profile-fields";
 export type ResumeMeta = { fileName: string; size: number; uploadedAt: string } | null;
 
 export async function loadProfile(db: Db, userId: ObjectId) {
-  const doc = await db.collection("profiles").findOne({ userId }, { projection: { "resume.data": 0 } });
+  const doc = await db.collection("profiles").findOne({ userId }, { projection: { "resume.data": 0, "photo.data": 0 } });
   const stored: ProfileField[] = doc?.fields ? JSON.parse(decrypt(String(doc.fields))) : [];
   const resume: ResumeMeta = doc?.resume ? { fileName: String(doc.resume.fileName), size: Number(doc.resume.size), uploadedAt: new Date(doc.resume.uploadedAt).toISOString() } : null;
-  return { fields: withStandardFields(stored), resume };
+  return { fields: withStandardFields(stored), resume, hasPhoto: Boolean(doc?.photo) };
 }
 
 export async function saveFields(db: Db, userId: ObjectId, fields: ProfileField[]) {
@@ -21,6 +21,18 @@ export async function saveFields(db: Db, userId: ObjectId, fields: ProfileField[
 
 export async function saveResume(db: Db, userId: ObjectId, fileName: string, pdf: Buffer) {
   await db.collection("profiles").updateOne({ userId }, { $set: { userId, resume: { fileName, size: pdf.length, uploadedAt: new Date(), data: encrypt(pdf) }, updatedAt: new Date() } }, { upsert: true });
+}
+
+/** Optional profile photo for applications that ask for one (encrypted like the resume). */
+export async function savePhoto(db: Db, userId: ObjectId, mime: string, image: Buffer | null) {
+  await db.collection("profiles").updateOne({ userId }, image
+    ? { $set: { userId, photo: { mime, size: image.length, uploadedAt: new Date(), data: encrypt(image) }, updatedAt: new Date() } }
+    : { $unset: { photo: "" }, $set: { updatedAt: new Date() } }, { upsert: true });
+}
+
+export async function loadPhotoFile(db: Db, userId: ObjectId) {
+  const doc = await db.collection("profiles").findOne({ userId }, { projection: { photo: 1 } });
+  return doc?.photo?.data ? { mime: String(doc.photo.mime), image: decryptBuffer(String(doc.photo.data)) } : null;
 }
 
 export async function loadResumeFile(db: Db, userId: ObjectId) {

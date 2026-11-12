@@ -23,8 +23,8 @@ async function api(path, method = "GET", body) {
     headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined
   });
-  if (path === "/api/ext/resume" && response.ok) {
-    return { base64: toBase64(await response.arrayBuffer()), fileName: decodeURIComponent(response.headers.get("x-file-name") || "resume.pdf") };
+  if ((path === "/api/ext/resume" || path === "/api/ext/photo") && response.ok) {
+    return { base64: toBase64(await response.arrayBuffer()), fileName: decodeURIComponent(response.headers.get("x-file-name") || "file"), type: response.headers.get("content-type") || "" };
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `JobGuard request failed (${response.status}).`);

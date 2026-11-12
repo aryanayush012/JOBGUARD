@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobGuard Autofill",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Fills job applications from your JobGuard answers and keeps your job statuses up to date. You review and submit; it never clicks Submit.",
   "permissions": ["storage", "activeTab", "scripting", "alarms"],
   "host_permissions": ["https://jobguard-lemon.vercel.app/*", "http://localhost/*", "https://mail.google.com/*"],
